@@ -114,14 +114,18 @@ class DiagnosticRunner:
             )
 
         # 5. Codec Backend (FFmpeg & SoundFile)
-        ffmpeg = shutil.which("ffmpeg")
+        from er_audio_tool.audio.codecs import get_ffmpeg_path, get_codec_manager
+        cm = get_codec_manager()
+        ffmpeg = get_ffmpeg_path() or shutil.which("ffmpeg")
+        is_local = cm.has_local_ffmpeg()
         if ffmpeg:
+            loc_label = "Portable local (temp_codecs)" if is_local else "System PATH"
             results.append(
                 DiagnosticItem(
                     category="Codecs",
                     name="Media Encoding Engine",
                     status="PASSED",
-                    details=f"FFmpeg binary detected at: {ffmpeg}",
+                    details=f"FFmpeg binary detected [{loc_label}]: {ffmpeg}",
                 )
             )
         else:

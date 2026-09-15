@@ -92,6 +92,25 @@ HELP_REGISTRY: dict[str, HelpTopic] = {
             "3. Im Erweiterungs-Popup einfügen und 'Record Active Tab' anklicken."
         ),
     ),
+    "codecs": HelpTopic(
+        topic_id="codecs",
+        title_en="Help: FFmpeg & Audio Codecs",
+        title_de="Hilfe: FFmpeg & Audio-Codecs",
+        content_en=(
+            "FFmpeg provides high-performance audio encoding, decoding, and muxing.\n\n"
+            "• Minimal / Audio Essentials: Includes MP3 (LAME), WAV (PCM), AAC/M4A, FLAC, OGG, and Opus.\n"
+            "• Full Codec Pack: Adds exotic & legacy audio formats like ALAC, AMR, AC3, DTS, WMA, AIFF, and WebM.\n"
+            "• Portable Execution: Unpacked into a local 'temp_codecs' folder next to the app.\n"
+            "• Lifecycle: Choose whether to keep this folder for future runs or delete it on application exit."
+        ),
+        content_de=(
+            "FFmpeg ermöglicht Audio-Encoding, Decoding und Container-Verarbeitung.\n\n"
+            "• Minimal / Audio-Essentials: Enthält MP3 (LAME), WAV (PCM), AAC/M4A, FLAC, OGG und Opus.\n"
+            "• Vollständiges Codec-Pack: Ergänzt Formate wie ALAC, AMR, AC3, DTS, WMA, AIFF und WebM.\n"
+            "• Portable Ausführung: Liegt direkt im Ordner 'temp_codecs' neben der App.\n"
+            "• Bereinigung: Sie können festlegen, ob der Ordner beim Beenden behalten oder gelöscht wird."
+        ),
+    ),
 }
 
 

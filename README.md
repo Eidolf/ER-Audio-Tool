@@ -70,7 +70,7 @@ er_audio_tool/
 
 ### Requirements
 - Python 3.9+ (or use portable standalone release binary)
-- FFmpeg (optional, recommended for MP3 conversion)
+- FFmpeg (optional: can be downloaded automatically on-demand in **Settings > FFmpeg & Codecs** with scope selection and automatic session cleanup)
 
 ### Install via pip:
 ```bash

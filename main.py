@@ -1260,6 +1260,23 @@ class App(ctk.CTk):
         self.btn.set_idle()
         if self.rec and self.rec.is_running():
             self.rec.stop()
+
+        # Handle optional portable codec pack cleanup if temp_codecs exists
+        try:
+            from er_audio_tool.audio.codecs import get_codec_manager
+            cm = get_codec_manager()
+            if cm.has_local_ffmpeg():
+                ans = messagebox.askyesnocancel(
+                    "Temporäre Codecs bereinigen?",
+                    "Im Ordner 'temp_codecs' befindet sich ein portables FFmpeg Codec-Pack.\n\nMöchten Sie diesen Ordner jetzt löschen oder für den nächsten Lauf behalten?\n\n[Ja = Behalten | Nein = Löschen]",
+                )
+                if ans is None:
+                    return
+                if ans is False:
+                    cm.delete_local_codecs()
+        except Exception:
+            pass
+
         self.destroy()
 
 

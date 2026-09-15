@@ -25,6 +25,7 @@ from er_audio_tool.midi.renderer import MidiRenderer
 from er_audio_tool.converter.converter import AudioConverter, ConversionJob
 from er_audio_tool.diagnostics.runner import DiagnosticRunner
 from er_audio_tool.help import get_help_topic
+from er_audio_tool.audio.codecs import get_codec_manager, CODEC_SCOPES
 
 
 class ErAudioApp(ctk.CTk):
@@ -50,12 +51,15 @@ class ErAudioApp(ctk.CTk):
         self.minsize(980, 680)
 
         self._active_backend = self.device_manager.get_active_backend()
+        self.codec_manager = get_codec_manager()
+        self._codec_download_cancel = threading.Event()
         self._recording_data: list[np.ndarray] = []
         self._record_start_time = 0.0
         self._elapsed_paused_time = 0.0
         self._pause_start_time = 0.0
         self._current_view_name = "rec_system"
 
+        self.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self._build_shell()
         self.i18n.subscribe(self._on_language_updated)
         self._show_view(self._current_view_name)
@@ -139,6 +143,7 @@ class ErAudioApp(ctk.CTk):
         # Section 6: Settings & Help
         ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_settings"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
         self._add_nav_btn("nav_set_general", "set_general")
+        self._add_nav_btn("nav_set_codecs", "set_codecs")
 
         ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_help"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
         self._add_nav_btn("nav_help_topics", "help_topics")
@@ -192,6 +197,8 @@ class ErAudioApp(ctk.CTk):
             self._render_browser_device_view()
         elif view_id == "set_general":
             self._render_settings_view()
+        elif view_id == "set_codecs":
+            self._render_codecs_view()
         elif view_id == "help_about":
             self._render_about_view()
         else:
@@ -414,6 +421,132 @@ class ErAudioApp(ctk.CTk):
         ctk.CTkButton(row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_settings_dir).pack(side="left")
 
         ctk.CTkButton(f, text=self.i18n.t("btn_save_settings"), width=150, command=self._on_save_settings_clicked).pack(anchor="w", pady=20)
+
+    def _render_codecs_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        # Title & Help
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(hdr, text=self.i18n.t("codecs_title"), font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkButton(hdr, text="?", width=28, height=28, command=lambda: self._show_help_dialog("codecs")).pack(side="right")
+
+        # Explanation Box
+        info_box = ctk.CTkFrame(f, fg_color="#263238", corner_radius=6)
+        info_box.pack(fill="x", pady=(0, 15))
+        ctk.CTkLabel(
+            info_box,
+            text=self.i18n.t("codecs_desc"),
+            wraplength=700,
+            justify="left",
+            text_color="#eceff1",
+            font=ctk.CTkFont(size=12),
+        ).pack(padx=15, pady=12, anchor="w")
+
+        # Current Codec Status Card
+        status_card = ctk.CTkFrame(f, fg_color="#212121", corner_radius=6)
+        status_card.pack(fill="x", pady=(0, 15), padx=2)
+        stat_row = ctk.CTkFrame(status_card, fg_color="transparent")
+        stat_row.pack(fill="x", padx=12, pady=10)
+        ctk.CTkLabel(stat_row, text=self.i18n.t("codecs_status_label"), font=ctk.CTkFont(weight="bold")).pack(side="left")
+
+        self.codec_status_label = ctk.CTkLabel(stat_row, text="", font=ctk.CTkFont(size=12))
+        self.codec_status_label.pack(side="left", padx=10)
+        self._update_codecs_status_display()
+
+        # Scope Selector (Minimal vs Full Pack)
+        scope_card = ctk.CTkFrame(f, fg_color="#212121", corner_radius=6)
+        scope_card.pack(fill="x", pady=(0, 15), padx=2)
+        scope_inner = ctk.CTkFrame(scope_card, fg_color="transparent")
+        scope_inner.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(scope_inner, text=self.i18n.t("codecs_scope_label"), font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 6))
+
+        is_de = (self.i18n.current_lang == "de")
+        self.scope_radio_var = ctk.StringVar(value=self.cfg.codec_scope)
+
+        for scope_id, sinfo in CODEC_SCOPES.items():
+            s_title = sinfo.name_de if is_de else sinfo.name_en
+            s_desc = sinfo.description_de if is_de else sinfo.description_en
+            s_codecs = sinfo.codecs_de if is_de else sinfo.codecs_en
+
+            r_frame = ctk.CTkFrame(scope_inner, fg_color="transparent")
+            r_frame.pack(fill="x", pady=4)
+            rb = ctk.CTkRadioButton(
+                r_frame,
+                text=s_title,
+                variable=self.scope_radio_var,
+                value=scope_id,
+                command=self._on_codec_scope_changed,
+                font=ctk.CTkFont(weight="bold"),
+            )
+            rb.pack(anchor="w")
+            ctk.CTkLabel(
+                r_frame,
+                text=f"  ↳ {s_desc}\n    Formats: {s_codecs}",
+                justify="left",
+                text_color="#90a4ae",
+                font=ctk.CTkFont(size=11),
+            ).pack(anchor="w", padx=(24, 0))
+
+        # Exit Cleanup Policy Card
+        exit_card = ctk.CTkFrame(f, fg_color="#212121", corner_radius=6)
+        exit_card.pack(fill="x", pady=(0, 15), padx=2)
+        exit_inner = ctk.CTkFrame(exit_card, fg_color="transparent")
+        exit_inner.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(exit_inner, text=self.i18n.t("codecs_exit_policy_label"), font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(0, 6))
+
+        self.exit_policy_var = ctk.StringVar(value=self.cfg.codecs_exit_policy)
+        policies = [
+            ("ask", self.i18n.t("codecs_exit_ask")),
+            ("keep", self.i18n.t("codecs_exit_keep")),
+            ("delete", self.i18n.t("codecs_exit_delete")),
+        ]
+        for p_val, p_text in policies:
+            ctk.CTkRadioButton(
+                exit_inner,
+                text=p_text,
+                variable=self.exit_policy_var,
+                value=p_val,
+                command=self._on_codec_exit_policy_changed,
+            ).pack(anchor="w", pady=3)
+
+        # Download & Purge Action Row
+        act_row = ctk.CTkFrame(f, fg_color="transparent")
+        act_row.pack(fill="x", pady=5)
+
+        self.btn_dl_codecs = ctk.CTkButton(
+            act_row,
+            text=self.i18n.t("btn_download_codecs"),
+            fg_color="#00695c",
+            hover_color="#004d40",
+            width=220,
+            command=self._on_start_download_codecs,
+        )
+        self.btn_dl_codecs.pack(side="left", padx=(0, 12))
+
+        self.btn_purge_codecs = ctk.CTkButton(
+            act_row,
+            text=self.i18n.t("btn_purge_codecs"),
+            fg_color="#c62828",
+            hover_color="#b71c1c",
+            width=160,
+            command=self._on_purge_codecs_clicked,
+        )
+        self.btn_purge_codecs.pack(side="left")
+
+        # Progress bar & status feedback
+        self.codec_prog_frame = ctk.CTkFrame(f, fg_color="transparent")
+        self.codec_prog_frame.pack(fill="x", pady=(10, 0))
+
+        self.codec_prog_bar = ctk.CTkProgressBar(self.codec_prog_frame)
+        self.codec_prog_bar.set(0.0)
+        self.codec_prog_bar.pack(fill="x", pady=(0, 6))
+
+        self.codec_prog_label = ctk.CTkLabel(self.codec_prog_frame, text="", text_color="#80cbc4", font=ctk.CTkFont(size=12))
+        self.codec_prog_label.pack(anchor="w")
 
     def _render_about_view(self):
         f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -694,3 +827,111 @@ class ErAudioApp(ctk.CTk):
                 self.clip_warn.configure(text="")
 
         self.after(50, self._update_loop)
+
+    # ------------------ CODEC MANAGEMENT & LIFECYCLE ------------------ #
+
+    def _update_codecs_status_display(self):
+        if not hasattr(self, "codec_status_label"):
+            return
+        local_bin = self.codec_manager.find_local_ffmpeg_path()
+        sys_bin = shutil.which("ffmpeg")
+        if local_bin:
+            self.codec_status_label.configure(
+                text=self.i18n.t("codecs_status_portable", path=str(local_bin)),
+                text_color="#80cbc4",
+            )
+        elif sys_bin:
+            self.codec_status_label.configure(
+                text=self.i18n.t("codecs_status_system", path=sys_bin),
+                text_color="#81c784",
+            )
+        else:
+            self.codec_status_label.configure(
+                text=self.i18n.t("codecs_status_missing"),
+                text_color="#e57373",
+            )
+
+    def _on_codec_scope_changed(self):
+        self.cfg.codec_scope = self.scope_radio_var.get()
+        self.cm.save(self.cfg)
+
+    def _on_codec_exit_policy_changed(self):
+        self.cfg.codecs_exit_policy = self.exit_policy_var.get()
+        self.cm.save(self.cfg)
+
+    def _on_start_download_codecs(self):
+        self.btn_dl_codecs.configure(state="disabled")
+        self._codec_download_cancel.clear()
+        self.codec_prog_bar.set(0.0)
+        self.codec_prog_label.configure(text=self.i18n.t("codecs_downloading", info="..."))
+
+        scope = self.cfg.codec_scope
+
+        def _worker():
+            def _progress(pct: float, msg: str):
+                self.after(0, lambda: self._on_download_progress(pct, msg))
+
+            success = self.codec_manager.download_codecs(
+                scope=scope,
+                progress_callback=_progress,
+                cancel_event=self._codec_download_cancel,
+            )
+            self.after(0, lambda: self._on_download_finished(success))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_download_progress(self, pct: float, msg: str):
+        if hasattr(self, "codec_prog_bar"):
+            self.codec_prog_bar.set(pct)
+            self.codec_prog_label.configure(text=msg)
+
+    def _on_download_finished(self, success: bool):
+        if hasattr(self, "btn_dl_codecs"):
+            self.btn_dl_codecs.configure(state="normal")
+        self._update_codecs_status_display()
+        if success:
+            messagebox.showinfo(self.i18n.t("app_title"), self.i18n.t("codecs_download_success"))
+        else:
+            if not self._codec_download_cancel.is_set():
+                messagebox.showerror(self.i18n.t("error"), self.i18n.t("codecs_download_failed", err="Network error or invalid archive"))
+
+    def _on_purge_codecs_clicked(self):
+        if not self.codec_manager.has_local_ffmpeg():
+            messagebox.showinfo(self.i18n.t("app_title"), "No portable codecs present in temp_codecs.")
+            return
+
+        if messagebox.askyesno(self.i18n.t("app_title"), self.i18n.t("codecs_purge_confirm")):
+            self.codec_manager.delete_local_codecs()
+            self._update_codecs_status_display()
+            messagebox.showinfo(self.i18n.t("app_title"), self.i18n.t("codecs_purged"))
+
+    def _on_window_close(self):
+        """Handle application exit with optional codec cleanup."""
+        has_codecs = self.codec_manager.has_local_ffmpeg()
+
+        if has_codecs:
+            policy = self.cfg.codecs_exit_policy
+            if policy == "delete":
+                self.codec_manager.delete_local_codecs()
+            elif policy == "ask":
+                # Prompt user whether to keep or delete
+                ans = messagebox.askyesnocancel(
+                    self.i18n.t("codecs_exit_dialog_title"),
+                    self.i18n.t("codecs_exit_dialog_prompt") + "\n\n[Yes = Keep | No = Delete]",
+                )
+                if ans is None:
+                    # User clicked Cancel: don't close app
+                    return
+                if ans is False:
+                    # User answered No: delete codecs
+                    self.codec_manager.delete_local_codecs()
+                # If ans is True (Yes): keep codecs
+
+        # Stop active capture if running
+        try:
+            if self.state_machine.current_state in (AppState.RECORDING, AppState.PAUSED):
+                self._active_backend.stop_capture()
+        except Exception:
+            pass
+
+        self.destroy()

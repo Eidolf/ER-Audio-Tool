@@ -69,9 +69,11 @@ class AudioEncoder:
                 wav_temp = temp_path.with_suffix(".temp.wav")
                 sf.write(wav_temp, processed_data, sample_rate, format="WAV")
                 try:
+                    from er_audio_tool.audio.codecs import get_ffmpeg_path
+                    ffmpeg_bin = get_ffmpeg_path() or "ffmpeg"
                     # Use ffmpeg if available
                     cmd = [
-                        "ffmpeg", "-y", "-i", str(wav_temp),
+                        ffmpeg_bin, "-y", "-i", str(wav_temp),
                         "-codec:a", "libmp3lame", "-b:a", "320k",
                         str(temp_path)
                     ]

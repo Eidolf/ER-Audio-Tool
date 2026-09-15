@@ -45,6 +45,9 @@ class AppConfig:
     anonymize_metadata: bool = True
     include_url_metadata: bool = False
     portable_mode: bool = False
+    # Codec pack & Portable FFmpeg management
+    codec_scope: str = "essential"  # "essential" or "full"
+    codecs_exit_policy: str = "ask"  # "ask", "keep", "delete"
 
 
 class ConfigManager:

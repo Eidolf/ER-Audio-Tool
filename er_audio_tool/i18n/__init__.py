@@ -52,6 +52,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         
         "nav_settings": "Settings",
         "nav_set_general": "General",
+        "nav_set_codecs": "FFmpeg & Codecs",
         "nav_set_audio": "Audio Capture",
         "nav_set_conv": "Conversion",
         "nav_set_midi": "MIDI & Synth",
@@ -103,6 +104,32 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # Legal & Privacy
         "legal_notice": "Notice: Only record content you have authorization to capture. er-audio-tool does not bypass protected media restrictions.",
         "privacy_guarantee": "Local-First: 100% offline. Zero telemetry or cloud transmission.",
+        
+        # Codecs & FFmpeg Downloader
+        "codecs_title": "FFmpeg & Audio Codec Pack Management",
+        "codecs_desc": "FFmpeg is the media engine used for MP3/M4A/Opus encoding and format conversion. You can download and unpack a portable codec pack directly into a local 'temp_codecs' folder next to the app without needing administrative system install.",
+        "codecs_status_label": "Current Status:",
+        "codecs_status_system": "Detected in system PATH ({path})",
+        "codecs_status_portable": "Active portable pack in temp_codecs ({path})",
+        "codecs_status_missing": "Not found. (WAV & FLAC available; MP3/M4A conversion limited)",
+        "codecs_scope_label": "Codec Scope:",
+        "codecs_scope_essential": "Minimal / Audio Essentials (MP3, WAV, AAC, FLAC, OGG, Opus)",
+        "codecs_scope_full": "Full Audio Codec Pack (Essentials + ALAC, AMR, AC3, DTS, WMA, AIFF, WebM)",
+        "codecs_exit_policy_label": "When closing application:",
+        "codecs_exit_ask": "Ask every time (Prompt to keep or delete temp_codecs)",
+        "codecs_exit_keep": "Keep temporary folder for future runs (Recommended)",
+        "codecs_exit_delete": "Always delete temporary codec folder on exit",
+        "btn_download_codecs": "Download & Setup Codecs",
+        "btn_purge_codecs": "Delete Local Codecs",
+        "codecs_downloading": "Downloading codecs: {info}",
+        "codecs_download_success": "Portable FFmpeg installed successfully!",
+        "codecs_download_failed": "Download/Extraction failed: {err}",
+        "codecs_purge_confirm": "Do you want to permanently delete the portable codecs directory ('temp_codecs')?",
+        "codecs_purged": "Temporary codecs folder was deleted.",
+        "codecs_exit_dialog_title": "Clean Up Temporary Codecs?",
+        "codecs_exit_dialog_prompt": "A temporary FFmpeg codec pack is present in 'temp_codecs'.\n\nWould you like to delete it now, or keep it for the next run?",
+        "btn_exit_keep": "Keep Codecs",
+        "btn_exit_delete": "Delete Temporary Folder",
     },
     "de": {
         # App & Header
@@ -150,6 +177,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         
         "nav_settings": "Einstellungen",
         "nav_set_general": "Allgemein",
+        "nav_set_codecs": "FFmpeg & Codecs",
         "nav_set_audio": "Audio-Aufnahme",
         "nav_set_conv": "Konvertierung",
         "nav_set_midi": "MIDI & Synthesizer",
@@ -201,6 +229,32 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # Legal & Privacy
         "legal_notice": "Hinweis: Bitte beachten Sie Urheberrechtsgesetze. er-audio-tool umgeht keinen Kopierschutz.",
         "privacy_guarantee": "Lokal-Zuerst: 100% offline. Keine Telemetrie oder Cloud-Übertragung.",
+        
+        # Codecs & FFmpeg Downloader
+        "codecs_title": "FFmpeg & Audio-Codec-Pack Verwaltung",
+        "codecs_desc": "FFmpeg ist die Encoding-Engine für MP3/M4A/Opus-Export und Formatkonvertierung. Über diesen Assistenten kann ein portables Codec-Pack direkt in den temporären Ordner 'temp_codecs' neben der Anwendung geladen und entpackt werden – ganz ohne Administratorrechte oder Systeminstallation.",
+        "codecs_status_label": "Aktueller Status:",
+        "codecs_status_system": "Im System-PATH erkannt ({path})",
+        "codecs_status_portable": "Aktives portables Pack in temp_codecs ({path})",
+        "codecs_status_missing": "Nicht gefunden. (WAV & FLAC verfügbar; MP3/M4A eingeschränkt)",
+        "codecs_scope_label": "Codec-Umfang:",
+        "codecs_scope_essential": "Minimal / Audio-Essentials (MP3, WAV, AAC, FLAC, OGG, Opus)",
+        "codecs_scope_full": "Vollständiges Audio-Codec-Pack (Essentials + ALAC, AMR, AC3, DTS, WMA, AIFF, WebM)",
+        "codecs_exit_policy_label": "Beim Schließen der Anwendung:",
+        "codecs_exit_ask": "Jedes Mal nachfragen (Temporären Ordner löschen oder behalten)",
+        "codecs_exit_keep": "Temporären Ordner für nächsten Lauf behalten (Empfohlen)",
+        "codecs_exit_delete": "Temporären Codec-Ordner beim Beenden immer löschen",
+        "btn_download_codecs": "Codecs herunterladen & einrichten",
+        "btn_purge_codecs": "Lokale Codecs löschen",
+        "codecs_downloading": "Lade Codecs herunter: {info}",
+        "codecs_download_success": "Portables FFmpeg wurde erfolgreich eingerichtet!",
+        "codecs_download_failed": "Download/Entpacken fehlgeschlagen: {err}",
+        "codecs_purge_confirm": "Möchten Sie das portable Codec-Verzeichnis ('temp_codecs') wirklich unwiderruflich löschen?",
+        "codecs_purged": "Temporärer Codec-Ordner wurde gelöscht.",
+        "codecs_exit_dialog_title": "Temporäre Codecs bereinigen?",
+        "codecs_exit_dialog_prompt": "Im Ordner 'temp_codecs' befindet sich ein portables FFmpeg Codec-Pack.\n\nMöchten Sie diesen temporären Ordner jetzt löschen oder für den nächsten Lauf behalten?",
+        "btn_exit_keep": "Codecs behalten",
+        "btn_exit_delete": "Temporären Ordner löschen",
     }
 }
 

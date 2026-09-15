@@ -58,7 +58,8 @@ class AudioConverter:
             target_name = f"{in_path.stem}_converted.{out_format}"
             out_path = out_dir / target_name
 
-        ffmpeg = shutil.which("ffmpeg")
+        from er_audio_tool.audio.codecs import get_ffmpeg_path
+        ffmpeg = get_ffmpeg_path() or shutil.which("ffmpeg")
 
         # 1. Direct ffmpeg conversion if available (handles all containers including M4A AAC/ALAC)
         if ffmpeg:

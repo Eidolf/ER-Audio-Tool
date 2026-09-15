@@ -85,10 +85,13 @@ class MidiRenderer:
         temp_wav = output_path.with_suffix(".temp.wav")
         sf.write(temp_wav, stereo, sample_rate, format="WAV")
 
-        if format_type.lower() == "mp3" and shutil.which("ffmpeg"):
+        from er_audio_tool.audio.codecs import get_ffmpeg_path
+        ffmpeg_bin = get_ffmpeg_path() or shutil.which("ffmpeg")
+
+        if format_type.lower() == "mp3" and ffmpeg_bin:
             try:
                 cmd = [
-                    "ffmpeg", "-y", "-i", str(temp_wav),
+                    ffmpeg_bin, "-y", "-i", str(temp_wav),
                     "-codec:a", "libmp3lame", "-b:a", "256k",
                     str(output_path)
                 ]

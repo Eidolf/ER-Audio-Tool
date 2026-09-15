@@ -1,4 +1,5 @@
 """Comprehensive unit and integration tests for converter, i18n completeness, and diagnostics."""
+import sys
 import tempfile
 from pathlib import Path
 import numpy as np
@@ -69,3 +70,34 @@ def test_diagnostic_runner():
         categories = {r.category for r in results}
         assert "System" in categories
         assert "Storage" in categories
+
+
+def test_codec_manager_and_exit_lifecycle():
+    from er_audio_tool.audio.codecs import CodecManager, CODEC_SCOPES
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        cm = CodecManager(base_dir=base)
+        assert cm.get_codecs_dir() == base / "temp_codecs"
+        assert cm.has_local_ffmpeg() is False
+
+        # Verify scopes definition
+        assert "essential" in CODEC_SCOPES
+        assert "full" in CODEC_SCOPES
+        assert "MP3" in CODEC_SCOPES["essential"].codecs_en
+        assert "ALAC" in CODEC_SCOPES["full"].codecs_en
+
+        # Simulate local binary extraction
+        bin_dir = cm.get_codecs_dir() / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        fake_bin = bin_dir / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+        fake_bin.write_text("#!/bin/sh\necho ffmpeg version 7.0")
+        fake_bin.chmod(0o755)
+
+        assert cm.has_local_ffmpeg() is True
+        assert cm.find_local_ffmpeg_path() == fake_bin
+        assert cm.get_active_ffmpeg() == str(fake_bin)
+
+        # Test deletion / cleanup on exit
+        assert cm.delete_local_codecs() is True
+        assert cm.has_local_ffmpeg() is False
+        assert not cm.get_codecs_dir().exists()
