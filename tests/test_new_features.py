@@ -136,3 +136,119 @@ def test_midi_parser_and_instrument_renderer():
         piano_audio = Path(tmpdir) / "acoustic_piano.wav"
         transcribed = AudioToMidiTranscriber.transcribe(piano_audio, profile="piano")
         assert len(transcribed) > 0
+
+
+def test_device_capability_classification():
+    from er_audio_tool.audio.interfaces import DeviceCapability, AudioDeviceInfo, BackendType
+
+    # Render endpoint with loopback capability
+    render_dev = AudioDeviceInfo(
+        id=1,
+        name="Speakers (Realtek Audio)",
+        channels=2,
+        sample_rate=48000,
+        backend_type=BackendType.WASAPI,
+        capability=DeviceCapability.OUTPUT_LOOPBACK,
+        is_loopback=True,
+    )
+    assert render_dev.capability == DeviceCapability.OUTPUT_LOOPBACK
+    assert render_dev.is_loopback is True
+
+    # Physical microphone
+    mic_dev = AudioDeviceInfo(
+        id=2,
+        name="Microphone (Realtek Audio)",
+        channels=2,
+        sample_rate=44100,
+        backend_type=BackendType.WASAPI,
+        capability=DeviceCapability.PHYSICAL_INPUT,
+        is_loopback=False,
+    )
+    assert mic_dev.capability == DeviceCapability.PHYSICAL_INPUT
+
+
+
+def test_persistent_extension_installation():
+    from er_audio_tool.core.config import ConfigManager
+    import json
+
+    cm = ConfigManager()
+    ext_dir = cm.install_or_update_extension()
+    assert ext_dir.exists()
+    assert (ext_dir / "manifest.json").exists()
+    assert (ext_dir / "background.js").exists()
+
+    # Validate manifest
+    with open(ext_dir / "manifest.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["manifest_version"] == 3
+    assert data["name"] == "er-audio-tool Companion"
+    assert "_MEI" not in str(ext_dir)
+
+
+def test_browser_server_pairing_token():
+    from er_audio_tool.browser.server import BrowserServer
+
+    srv = BrowserServer(port=18999, token_entropy_bytes=16)
+    initial_token = srv.get_pairing_token()
+    assert len(initial_token) == 32  # 16 bytes hex = 32 chars
+    assert srv.validate_token(initial_token) is True
+
+    # Test regeneration
+    new_token = srv.regenerate_token()
+    assert new_token != initial_token
+    assert srv.validate_token(initial_token) is False
+    assert srv.validate_token(new_token) is True
+
+
+def test_midi_program_change_and_drum_channel():
+    from er_audio_tool.midi.model import MidiExporter, NoteEvent
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        p = Path(tmpdir) / "drums_and_bass.mid"
+        events = [
+            NoteEvent(pitch=36, start_time=0.0, duration=0.1, channel=9),  # Bass drum on percussion channel
+            NoteEvent(pitch=38, start_time=0.2, duration=0.1, channel=9),  # Snare
+            NoteEvent(pitch=33, start_time=0.0, duration=0.4, channel=2),  # Bass note on Channel 2
+        ]
+        # Assign Program 33 (Electric Bass) to Channel 2
+        MidiExporter.export_midi(events, p, track_programs={2: 33})
+        assert p.exists()
+
+        with open(p, "rb") as f:
+            content = f.read()
+
+        # Check for Program Change status on Channel 2 (0xC2) with Program 33
+        assert bytes([0xC2, 33]) in content
+        # Check Note On for percussion (0x99)
+        assert bytes([0x99, 36]) in content
+
+
+def test_stem_separation_pipeline():
+    from er_audio_tool.analysis.separator import StemSeparator
+    import numpy as np
+    import soundfile as sf
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_wav = Path(tmpdir) / "mix.wav"
+        sr = 22050
+        duration = 1.0
+        t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+        # Low frequency bass (100 Hz) + High frequency melody (1200 Hz)
+        mix = 0.5 * np.sin(2 * np.pi * 100 * t) + 0.5 * np.sin(2 * np.pi * 1200 * t)
+        sf.write(test_wav, np.column_stack([mix, mix]), sr)
+
+        out_dir = Path(tmpdir) / "stems"
+        stems = StemSeparator.separate_file(test_wav, out_dir)
+
+        assert "vocals" in stems
+        assert "drums" in stems
+        assert "bass" in stems
+        assert "other" in stems
+
+        for name in ("vocals", "drums", "bass", "other"):
+            stem_info = stems[name]
+            assert stem_info.file_path.exists()
+            assert stem_info.file_path.stat().st_size > 0
+            assert stem_info.duration > 0.9
+

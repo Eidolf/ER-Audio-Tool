@@ -16,6 +16,15 @@ class BackendType(Enum):
     MOCK = "mock"
 
 
+class DeviceCapability(Enum):
+    PHYSICAL_INPUT = "physical_input"
+    OUTPUT_LOOPBACK = "output_loopback"
+    PROCESS_LOOPBACK = "process_loopback"
+    BROWSER_STREAM = "browser_stream"
+    VIRTUAL_INPUT = "virtual_input"
+    UNSUPPORTED = "unsupported"
+
+
 @dataclass
 class AudioDeviceInfo:
     id: int | str
@@ -25,6 +34,7 @@ class AudioDeviceInfo:
     is_default: bool = False
     is_loopback: bool = True
     backend_type: BackendType = BackendType.MOCK
+    capability: DeviceCapability = DeviceCapability.OUTPUT_LOOPBACK
     extra: dict = None
 
     def __post_init__(self):

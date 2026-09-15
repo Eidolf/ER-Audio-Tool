@@ -13,14 +13,26 @@ logger = logging.getLogger("er_audio_tool.browser")
 class BrowserServer:
     """Loopback-only server (127.0.0.1) communicating securely with Chrome/Edge extension."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 58291):
+    def __init__(self, host: str = "127.0.0.1", port: int = 58291, token_entropy_bytes: int = 24):
         self.host = host
         self.port = port
-        self.auth_token = secrets.token_urlsafe(32)
+        self.token_entropy_bytes = token_entropy_bytes
+        self.auth_token = secrets.token_hex(token_entropy_bytes)
         self.is_running = False
         self._server = None
         self.on_audio_data: Optional[Callable[[np.ndarray], None]] = None
         self.on_status_change: Optional[Callable[[str], None]] = None
+
+    def get_pairing_token(self) -> str:
+        return self.auth_token
+
+    def regenerate_token(self) -> str:
+        self.auth_token = secrets.token_hex(self.token_entropy_bytes)
+        return self.auth_token
+
+    def validate_token(self, token: str) -> bool:
+        return bool(token and secrets.compare_digest(self.auth_token, token))
+
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         client_addr = writer.get_extra_info("peername")

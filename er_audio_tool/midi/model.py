@@ -29,6 +29,7 @@ class MidiExporter:
         notes: list[NoteEvent],
         output_path: Path | str,
         bpm: float = 120.0,
+        track_programs: dict[int, int] | None = None,  # channel -> General MIDI program (0-127)
     ) -> Path:
         p = Path(output_path)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -40,6 +41,11 @@ class MidiExporter:
         events = []
         ticks_per_second = (cls.TICKS_PER_BEAT * bpm) / 60.0
 
+        # Program Change events at tick 0 for assigned channels
+        if track_programs:
+            for ch, prog in track_programs.items():
+                events.append((0, 0xC0 | (ch & 0x0F), prog & 0x7F, 0))
+
         for n in notes:
             start_tick = int(n.start_time * ticks_per_second)
             end_tick = int(n.end_time * ticks_per_second)
@@ -48,8 +54,16 @@ class MidiExporter:
             # Note Off: 0x80 | channel
             events.append((end_tick, 0x80 | (n.channel & 0x0F), n.pitch, 0))
 
-        # Sort by tick time; if ticks equal, note off before note on
-        events.sort(key=lambda e: (e[0], 0 if (e[1] & 0xF0) == 0x80 else 1))
+        # Sort by tick time; if ticks equal, note off before note on, program change first
+        def event_priority(e):
+            st = e[1] & 0xF0
+            if st == 0xC0:
+                return 0
+            if st == 0x80:
+                return 1
+            return 2
+
+        events.sort(key=lambda e: (e[0], event_priority(e)))
 
         # Build track chunk data
         track_bytes = bytearray()
@@ -60,11 +74,16 @@ class MidiExporter:
         track_bytes.extend(struct.pack(">I", tempo_us)[1:])  # 3 bytes
 
         last_tick = 0
-        for tick, status, pitch, vel in events:
+        for e in events:
+            tick = e[0]
             delta = max(0, tick - last_tick)
             last_tick = tick
             track_bytes.extend(cls._write_varlen(delta))
-            track_bytes.extend(bytes([status, pitch & 0x7F, vel & 0x7F]))
+            status = e[1]
+            if (status & 0xF0) in (0xC0, 0xD0):
+                track_bytes.extend(bytes([status, e[2] & 0x7F]))
+            else:
+                track_bytes.extend(bytes([status, e[2] & 0x7F, e[3] & 0x7F]))
 
         # End of Track Meta Event: 0xFF 0x2F 0x00
         track_bytes.extend(cls._write_varlen(0))

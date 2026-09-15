@@ -77,6 +77,9 @@ class ErAudioApp(ctk.CTk):
         else:
             self._current_view_name = "rec_system"
 
+        self.browser_server = BrowserServer()
+        self._token_visible = False
+
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self._build_shell()
         self.i18n.subscribe(self._on_language_updated)
@@ -135,7 +138,51 @@ class ErAudioApp(ctk.CTk):
         self.content_frame = ctk.CTkScrollableFrame(self.body_frame, corner_radius=0, fg_color="#1a1a1a")
         self.content_frame.pack(side="right", expand=True, fill="both")
 
+        self._attach_sidebar_wheel_scrolling()
         self._render_sidebar()
+
+    def _attach_sidebar_wheel_scrolling(self):
+        """Attaches reliable mouse-wheel routing to the sidebar canvas and all child controls."""
+        def _on_sidebar_mousewheel(event):
+            try:
+                canvas = getattr(self.sidebar_frame, "_parent_canvas", None)
+                if not canvas or not canvas.winfo_exists():
+                    return
+                # On Windows event.delta is typically multiples of 120
+                if sys.platform.startswith("win"):
+                    delta = -int(event.delta / 60)
+                elif event.num == 4:
+                    delta = -2
+                elif event.num == 5:
+                    delta = 2
+                else:
+                    delta = -int(getattr(event, "delta", 0)) or 1
+                canvas.yview_scroll(delta, "units")
+            except Exception:
+                pass
+
+        self._sidebar_wheel_handler = _on_sidebar_mousewheel
+        try:
+            canv = getattr(self.sidebar_frame, "_parent_canvas", self.sidebar_frame)
+            canv.bind("<MouseWheel>", _on_sidebar_mousewheel, add="+")
+            canv.bind("<Button-4>", _on_sidebar_mousewheel, add="+")
+            canv.bind("<Button-5>", _on_sidebar_mousewheel, add="+")
+        except Exception:
+            pass
+
+    def _bind_wheel_to_sidebar_widget(self, widget):
+        """Recursively binds mouse-wheel routing to any widget added to the sidebar."""
+        handler = getattr(self, "_sidebar_wheel_handler", None)
+        if not handler:
+            return
+        try:
+            widget.bind("<MouseWheel>", handler, add="+")
+            widget.bind("<Button-4>", handler, add="+")
+            widget.bind("<Button-5>", handler, add="+")
+            for ch in widget.winfo_children():
+                self._bind_wheel_to_sidebar_widget(ch)
+        except Exception:
+            pass
 
     def _render_sidebar(self):
         # Clear existing sidebar buttons
@@ -194,6 +241,7 @@ class ErAudioApp(ctk.CTk):
             command=lambda: self._show_view(view_id),
         )
         btn.pack(fill="x", padx=8, pady=2)
+        self._bind_wheel_to_sidebar_widget(btn)
 
     def _on_lang_switch_clicked(self, choice: str):
         lang = "de" if choice == "DE" else "en"
@@ -269,11 +317,37 @@ class ErAudioApp(ctk.CTk):
                 command=lambda: self._show_view("set_codecs"),
             ).pack(side="right", padx=12, pady=10)
 
+        # Source Mode Label and Description
+        mode_hdr = "System Output Loopback"
+        mode_desc = "Capture all audio playing through your speakers, headphones, or virtual audio endpoints."
+        if self._current_view_name == "rec_app":
+            mode_hdr = "Application Audio Capture"
+            mode_desc = "Capture dedicated application audio streams or virtual application loopback devices."
+        elif self._current_view_name == "rec_browser":
+            mode_hdr = "Browser Tab Companion Capture"
+            mode_desc = "Capture individual browser tabs streamed through the er-audio-tool companion extension."
+
+        mode_card = ctk.CTkFrame(f, fg_color="#1b2831", corner_radius=6)
+        mode_card.pack(fill="x", pady=(0, 12))
+        ctk.CTkLabel(mode_card, text=mode_hdr, font=ctk.CTkFont(size=14, weight="bold"), text_color="#80deea").pack(anchor="w", padx=12, pady=(8, 2))
+        ctk.CTkLabel(mode_card, text=mode_desc, font=ctk.CTkFont(size=11), text_color="#b0bec5").pack(anchor="w", padx=12, pady=(0, 8))
+
         # Source Selection
         src_row = ctk.CTkFrame(f, fg_color="transparent")
         src_row.pack(fill="x", pady=6)
         ctk.CTkLabel(src_row, text=self.i18n.t("source_label"), width=120, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
-        self.devices = self.device_manager.enumerate_all_devices()
+        all_devs = self.device_manager.enumerate_all_devices()
+        
+        # Filter endpoints according to active mode
+        if self._current_view_name == "rec_system":
+            self.devices = [d for d in all_devs if d.is_loopback] or all_devs
+        elif self._current_view_name == "rec_app":
+            self.devices = [d for d in all_devs if ("app" in d.name.lower() or "process" in d.name.lower() or d.is_loopback)] or all_devs
+        elif self._current_view_name == "rec_browser":
+            self.devices = [d for d in all_devs if ("browser" in d.name.lower() or d.is_loopback)] or all_devs
+        else:
+            self.devices = all_devs
+
         dev_names = [d.name for d in self.devices] or ["Default Endpoint"]
         self.source_combo = ctk.CTkComboBox(src_row, values=dev_names, width=420)
         self.source_combo.set(dev_names[0])
@@ -399,21 +473,80 @@ class ErAudioApp(ctk.CTk):
 
         hdr = ctk.CTkFrame(f, fg_color="transparent")
         hdr.pack(fill="x", pady=(0, 15))
-        ctk.CTkLabel(hdr, text=self.i18n.t("nav_dev_browser"), font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkLabel(hdr, text=self.i18n.t("browser_pairing_title"), font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
         ctk.CTkButton(hdr, text="?", width=28, height=28, command=lambda: self._show_help_dialog("browser_companion")).pack(side="right")
 
+        # Persistent Extension Installation Card
+        ext_p = self.cm.install_or_update_extension()
         ext_card = ctk.CTkFrame(f, fg_color="#222222", corner_radius=8)
-        ext_card.pack(fill="x", pady=10, padx=5)
+        ext_card.pack(fill="x", pady=10)
 
-        ctk.CTkLabel(ext_card, text="Companion Extension Setup", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=15, pady=(12, 4))
-        ctk.CTkLabel(ext_card, text="Status: Ready on loopback interface (127.0.0.1)", text_color="#4db6ac").pack(anchor="w", padx=15, pady=2)
-        ctk.CTkLabel(ext_card, text="Installation Path: " + str(Path(__file__).resolve().parent.parent.parent / "browser_extension"), font=ctk.CTkFont(size=11), text_color="#90a4ae").pack(anchor="w", padx=15, pady=(2, 12))
+        ctk.CTkLabel(ext_card, text=self.i18n.t("browser_path_label"), font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(12, 6))
+
+        path_row = ctk.CTkFrame(ext_card, fg_color="transparent")
+        path_row.pack(fill="x", padx=15, pady=(0, 8))
+        self.browser_path_entry = ctk.CTkEntry(path_row, width=420)
+        self.browser_path_entry.insert(0, str(ext_p.resolve()))
+        self.browser_path_entry.configure(state="readonly")
+        self.browser_path_entry.pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(path_row, text=self.i18n.t("btn_copy_path"), width=100, command=self._on_copy_browser_path).pack(side="left", padx=4)
+        ctk.CTkButton(path_row, text=self.i18n.t("btn_open_folder"), width=100, command=self._on_open_browser_folder).pack(side="left", padx=4)
+        ctk.CTkButton(path_row, text=self.i18n.t("btn_reinstall_ext"), width=160, command=self._on_reinstall_extension).pack(side="left", padx=4)
+
+        self.browser_path_status = ctk.CTkLabel(ext_card, text=self.i18n.t("ext_installed_msg"), font=ctk.CTkFont(size=11), text_color="#4db6ac")
+        self.browser_path_status.pack(anchor="w", padx=15, pady=(2, 12))
+
+        # Pairing Token Card
+        token_card = ctk.CTkFrame(f, fg_color="#222222", corner_radius=8)
+        token_card.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(token_card, text=self.i18n.t("browser_token_label"), font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(12, 6))
+
+        tok_row = ctk.CTkFrame(token_card, fg_color="transparent")
+        tok_row.pack(fill="x", padx=15, pady=(0, 8))
+
+        self.browser_token_entry = ctk.CTkEntry(tok_row, width=420)
+        curr_token = self.browser_server.auth_token if self.browser_server else "ready"
+        self.browser_token_entry.insert(0, curr_token if self._token_visible else self.i18n.t("browser_token_masked"))
+        self.browser_token_entry.configure(state="readonly")
+        self.browser_token_entry.pack(side="left", padx=(0, 8))
+
+        self.btn_toggle_tok = ctk.CTkButton(
+            tok_row,
+            text=self.i18n.t("btn_show_token") if not self._token_visible else self.i18n.t("btn_hide_token"),
+            width=110,
+            command=self._on_toggle_token_visibility,
+        )
+        self.btn_toggle_tok.pack(side="left", padx=4)
+
+        ctk.CTkButton(tok_row, text=self.i18n.t("btn_copy_token"), width=110, command=self._on_copy_browser_token).pack(side="left", padx=4)
+        ctk.CTkButton(tok_row, text=self.i18n.t("btn_regen_token"), width=150, command=self._on_regen_browser_token).pack(side="left", padx=4)
+
+        self.browser_tok_status = ctk.CTkLabel(token_card, text=self.i18n.t("ext_status_ready"), font=ctk.CTkFont(size=11), text_color="#80cbc4")
+        self.browser_tok_status.pack(anchor="w", padx=15, pady=(2, 12))
+
+        # Setup Instructions Guide
+        guide_card = ctk.CTkFrame(f, fg_color="#1e272c", corner_radius=8)
+        guide_card.pack(fill="x", pady=10)
+        ctk.CTkLabel(guide_card, text="Setup Guide (Chrome / Microsoft Edge)", font=ctk.CTkFont(size=14, weight="bold"), text_color="#80deea").pack(anchor="w", padx=15, pady=(10, 4))
+        
+        guide_text = (
+            "1. Click 'Copy Path' above to copy the stable extension directory.\n"
+            "2. In your browser, open edge://extensions or chrome://extensions.\n"
+            "3. Enable 'Developer mode' (switch in sidebar or top bar).\n"
+            "4. Click 'Load unpacked' and select the copied directory.\n"
+            "5. Open the extension popup, paste the Session Token, and select your tab to capture."
+        )
+        ctk.CTkLabel(guide_card, text=guide_text, justify="left", font=ctk.CTkFont(size=12), text_color="#cfd8dc").pack(anchor="w", padx=15, pady=(0, 12))
 
     def _render_analysis_view(self):
-        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f = ctk.CTkScrollableFrame(self.content_frame, fg_color="transparent")
         f.pack(expand=True, fill="both", padx=25, pady=20)
 
-        ctk.CTkLabel(f, text=self.i18n.t("nav_ana_audio"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 15))
+        ctk.CTkLabel(f, text=self.i18n.t("nav_ana_audio"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 10))
+        
+        # Audio File Picker
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x", pady=5)
         self.ana_file_entry = ctk.CTkEntry(row, width=450, placeholder_text="Select audio file...")
@@ -421,8 +554,36 @@ class ErAudioApp(ctk.CTk):
         ctk.CTkButton(row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_ana_file).pack(side="left")
         ctk.CTkButton(row, text=self.i18n.t("btn_analyze"), width=120, command=self._on_run_analysis).pack(side="left", padx=10)
 
-        self.ana_box = ctk.CTkTextbox(f, height=350)
-        self.ana_box.pack(expand=True, fill="both", pady=15)
+        self.ana_box = ctk.CTkTextbox(f, height=130)
+        self.ana_box.pack(fill="x", pady=10)
+
+        # Deep Source Separation & Stem Mixer Section
+        sep_hdr = ctk.CTkFrame(f, fg_color="#1e272c", corner_radius=6)
+        sep_hdr.pack(fill="x", pady=(10, 8), padx=2)
+        sep_hdr_inner = ctk.CTkFrame(sep_hdr, fg_color="transparent")
+        sep_hdr_inner.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(sep_hdr_inner, text="Deep Source Separation & Multitrack Stem Mixer", font=ctk.CTkFont(size=14, weight="bold"), text_color="#80cbc4").pack(side="left")
+        self.btn_separate = ctk.CTkButton(
+            sep_hdr_inner,
+            text="⚡ Extract 4 Stems (Vocals, Drums, Bass, Other)",
+            fg_color="#00897b",
+            hover_color="#00695c",
+            command=self._on_run_stem_separation,
+        )
+        self.btn_separate.pack(side="right", padx=5)
+
+        self.sep_progress = ctk.CTkProgressBar(f, height=6)
+        self.sep_progress.pack(fill="x", pady=(2, 6))
+        self.sep_progress.set(0.0)
+
+        self.sep_status_lbl = ctk.CTkLabel(f, text="Ready. Select an audio file and extract stems.", text_color="#90a4ae", font=ctk.CTkFont(size=11))
+        self.sep_status_lbl.pack(anchor="w", pady=(0, 10))
+
+        # Container for Stem Mixer Lanes
+        self.stem_mixer_container = ctk.CTkFrame(f, fg_color="transparent")
+        self.stem_mixer_container.pack(fill="x", pady=5)
+        self._stem_mixer_widgets = {}
 
     def _render_midi_view(self):
         f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -440,8 +601,8 @@ class ErAudioApp(ctk.CTk):
         ctk.CTkLabel(opt_row, text="Profile:").pack(side="left", padx=(0, 5))
         self.midi_profile_combo = ctk.CTkComboBox(
             opt_row,
-            values=["melody", "piano", "bass", "vocals", "percussive"],
-            width=140,
+            values=["melody", "piano", "bass", "vocals", "percussive", "full_arrangement"],
+            width=160,
         )
         self.midi_profile_combo.set("melody")
         self.midi_profile_combo.pack(side="left", padx=(0, 15))
@@ -699,6 +860,67 @@ class ErAudioApp(ctk.CTk):
             self.cfg.output_dir = p
             self.cm.save(self.cfg)
 
+    def _on_copy_browser_path(self):
+        p = str(self.cm.get_extension_dir().resolve())
+        self.clipboard_clear()
+        self.clipboard_append(p)
+        if hasattr(self, "browser_path_status") and self.browser_path_status.winfo_exists():
+            self.browser_path_status.configure(text=self.i18n.t("path_copied_msg"), text_color="#4db6ac")
+
+    def _on_open_browser_folder(self):
+        p = self.cm.get_extension_dir()
+        p.mkdir(parents=True, exist_ok=True)
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(p))
+            elif sys.platform == "darwin":
+                subprocess.run(["open", str(p)])
+            else:
+                subprocess.run(["xdg-open", str(p)])
+        except Exception as ex:
+            messagebox.showerror(self.i18n.t("error"), f"Could not open directory: {ex}")
+
+    def _on_reinstall_extension(self):
+        ext_p = self.cm.install_or_update_extension()
+        if hasattr(self, "browser_path_entry") and self.browser_path_entry.winfo_exists():
+            self.browser_path_entry.configure(state="normal")
+            self.browser_path_entry.delete(0, "end")
+            self.browser_path_entry.insert(0, str(ext_p.resolve()))
+            self.browser_path_entry.configure(state="readonly")
+        if hasattr(self, "browser_path_status") and self.browser_path_status.winfo_exists():
+            self.browser_path_status.configure(text=self.i18n.t("ext_installed_msg"), text_color="#4db6ac")
+
+    def _on_toggle_token_visibility(self):
+        self._token_visible = not self._token_visible
+        curr_token = self.browser_server.auth_token if self.browser_server else ""
+        if hasattr(self, "browser_token_entry") and self.browser_token_entry.winfo_exists():
+            self.browser_token_entry.configure(state="normal")
+            self.browser_token_entry.delete(0, "end")
+            self.browser_token_entry.insert(0, curr_token if self._token_visible else self.i18n.t("browser_token_masked"))
+            self.browser_token_entry.configure(state="readonly")
+        if hasattr(self, "btn_toggle_tok") and self.btn_toggle_tok.winfo_exists():
+            self.btn_toggle_tok.configure(text=self.i18n.t("btn_hide_token") if self._token_visible else self.i18n.t("btn_show_token"))
+
+    def _on_copy_browser_token(self):
+        token = self.browser_server.auth_token if self.browser_server else ""
+        self.clipboard_clear()
+        self.clipboard_append(token)
+        if hasattr(self, "browser_tok_status") and self.browser_tok_status.winfo_exists():
+            self.browser_tok_status.configure(text=self.i18n.t("token_copied_msg"), text_color="#4db6ac")
+
+    def _on_regen_browser_token(self):
+        if self.browser_server:
+            import secrets
+            self.browser_server.auth_token = secrets.token_urlsafe(32)
+            curr_token = self.browser_server.auth_token
+            if hasattr(self, "browser_token_entry") and self.browser_token_entry.winfo_exists():
+                self.browser_token_entry.configure(state="normal")
+                self.browser_token_entry.delete(0, "end")
+                self.browser_token_entry.insert(0, curr_token if self._token_visible else self.i18n.t("browser_token_masked"))
+                self.browser_token_entry.configure(state="readonly")
+            if hasattr(self, "browser_tok_status") and self.browser_tok_status.winfo_exists():
+                self.browser_tok_status.configure(text="✓ New Token Generated", text_color="#80cbc4")
+
     def _on_browse_settings_dir(self):
         p = filedialog.askdirectory(initialdir=self.cfg.output_dir)
         if p:
@@ -899,6 +1121,147 @@ class ErAudioApp(ctk.CTk):
         rep = AudioAnalyzer.analyze_file(p)
         self.ana_box.insert("end", f"File: {rep.file_path}\nDuration: {rep.duration_seconds}s | Sample Rate: {rep.sample_rate} Hz | Channels: {rep.channels}\nPeak: {rep.peak_db} dBFS | RMS: {rep.rms_db} dBFS\nEstimated Tempo: {rep.estimated_tempo_bpm} BPM | Key: {rep.estimated_key}\n")
 
+    def _on_run_stem_separation(self):
+        p = self.ana_file_entry.get().strip()
+        if not p or not Path(p).exists():
+            messagebox.showerror(self.i18n.t("error"), "Please select an existing audio file.")
+            return
+
+        if hasattr(self, "btn_separate"):
+            self.btn_separate.configure(state="disabled")
+        if hasattr(self, "sep_status_lbl"):
+            self.sep_status_lbl.configure(text="Extracting 4 stems (Vocals, Drums, Bass, Other)...", text_color="#ffb74d")
+        if hasattr(self, "sep_progress"):
+            self.sep_progress.set(0.05)
+
+        out_stem_dir = Path(self.cfg.output_dir) / "stems"
+
+        def progress_cb(pct: float, msg: str):
+            def update():
+                if hasattr(self, "sep_progress") and self.sep_progress.winfo_exists():
+                    self.sep_progress.set(pct)
+                if hasattr(self, "sep_status_lbl") and self.sep_status_lbl.winfo_exists():
+                    self.sep_status_lbl.configure(text=f"[{int(pct*100)}%] {msg}", text_color="#ffb74d")
+            self.after(0, update)
+
+        def worker():
+            from er_audio_tool.analysis.separator import StemSeparator
+            try:
+                stems = StemSeparator.separate_file(p, out_stem_dir, progress_cb=progress_cb)
+                err = None
+            except Exception as ex:
+                stems = {}
+                err = str(ex)
+
+            def update_done():
+                if hasattr(self, "btn_separate") and self.btn_separate.winfo_exists():
+                    self.btn_separate.configure(state="normal")
+                if err:
+                    if hasattr(self, "sep_status_lbl") and self.sep_status_lbl.winfo_exists():
+                        self.sep_status_lbl.configure(text=f"✗ Separation failed: {err}", text_color="#e57373")
+                    return
+
+                if hasattr(self, "sep_status_lbl") and self.sep_status_lbl.winfo_exists():
+                    self.sep_status_lbl.configure(text="✓ 4 Stems extracted successfully! Use mixer below to audition or send stems to MIDI.", text_color="#4db6ac")
+                if hasattr(self, "sep_progress") and self.sep_progress.winfo_exists():
+                    self.sep_progress.set(1.0)
+
+                self._build_stem_mixer_ui(stems)
+                self._refresh_library_list()
+
+            self.after(0, update_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _build_stem_mixer_ui(self, stems: dict):
+        if not hasattr(self, "stem_mixer_container") or not self.stem_mixer_container.winfo_exists():
+            return
+        for w in self.stem_mixer_container.winfo_children():
+            w.destroy()
+
+        colors = {
+            "vocals": "#ab47bc",
+            "drums": "#ef5350",
+            "bass": "#42a5f5",
+            "other": "#26a69a",
+        }
+
+        for stem_name in ("vocals", "drums", "bass", "other"):
+            sinfo = stems.get(stem_name)
+            if not sinfo:
+                continue
+
+            lane = ctk.CTkFrame(self.stem_mixer_container, fg_color="#212121", corner_radius=6)
+            lane.pack(fill="x", pady=4, padx=2)
+
+            # Left badge & stats
+            left_f = ctk.CTkFrame(lane, fg_color="transparent")
+            left_f.pack(side="left", padx=12, pady=8)
+            ctk.CTkLabel(
+                left_f,
+                text=stem_name.upper(),
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color=colors.get(stem_name, "#ffffff"),
+                width=80,
+                anchor="w",
+            ).pack(anchor="w")
+            ctk.CTkLabel(
+                left_f,
+                text=f"RMS: {sinfo.rms_db:.1f} dB | Peak: {sinfo.peak_db:.1f} dB",
+                font=ctk.CTkFont(size=10),
+                text_color="#90a4ae",
+            ).pack(anchor="w")
+
+            # Middle: Volume Slider
+            mid_f = ctk.CTkFrame(lane, fg_color="transparent")
+            mid_f.pack(side="left", fill="x", expand=True, padx=15)
+            vol_slider = ctk.CTkSlider(mid_f, from_=0.0, to=1.5, number_of_steps=30)
+            vol_slider.set(1.0)
+            vol_slider.pack(fill="x")
+
+            # Controls: Mute, Solo, Send to MIDI
+            ctrl_f = ctk.CTkFrame(lane, fg_color="transparent")
+            ctrl_f.pack(side="right", padx=12)
+
+            mute_btn = ctk.CTkButton(ctrl_f, text="Mute", width=55, height=28, fg_color="#37474f", hover_color="#263238")
+            solo_btn = ctk.CTkButton(ctrl_f, text="Solo", width=55, height=28, fg_color="#37474f", hover_color="#263238")
+
+            def toggle_mute(b=mute_btn):
+                curr = b.cget("text")
+                b.configure(text="MUTED" if curr == "Mute" else "Mute", fg_color="#c62828" if curr == "Mute" else "#37474f")
+
+            def toggle_solo(b=solo_btn):
+                curr = b.cget("text")
+                b.configure(text="SOLOED" if curr == "Solo" else "Solo", fg_color="#f57f17" if curr == "Solo" else "#37474f")
+
+            mute_btn.configure(command=toggle_mute)
+            solo_btn.configure(command=toggle_solo)
+            mute_btn.pack(side="left", padx=4)
+            solo_btn.pack(side="left", padx=4)
+
+            # Send to MIDI Button
+            send_midi_btn = ctk.CTkButton(
+                ctrl_f,
+                text="➔ Send to MIDI",
+                width=115,
+                height=28,
+                fg_color="#00695c",
+                hover_color="#004d40",
+                command=lambda p=str(sinfo.file_path), prof=stem_name: self._send_stem_to_midi(p, prof),
+            )
+            send_midi_btn.pack(side="left", padx=6)
+
+    def _send_stem_to_midi(self, stem_path: str, stem_name: str):
+        self._show_view("ana_midi")
+        if hasattr(self, "midi_input_entry"):
+            self.midi_input_entry.delete(0, "end")
+            self.midi_input_entry.insert(0, stem_path)
+        if hasattr(self, "midi_profile_combo"):
+            # Map stem to profile
+            prof_map = {"vocals": "vocals", "drums": "percussive", "bass": "bass", "other": "piano"}
+            self.midi_profile_combo.set(prof_map.get(stem_name, "melody"))
+
+
     def _on_run_transcribe(self):
         p = self.midi_input_entry.get().strip()
         if not p or not Path(p).exists():
@@ -925,23 +1288,48 @@ class ErAudioApp(ctk.CTk):
         fmt_c = getattr(self, "ren_fmt_combo", None)
         format_type = fmt_c.get().lower() if fmt_c else "mp3"
 
-        self.ren_box.delete("1.0", "end")
-        self.ren_box.insert("end", f"Rendering MIDI file: {Path(p).name}...\nInstrument: {instrument} | Format: {format_type.upper()}\n")
+        if hasattr(self, "ren_box") and self.ren_box.winfo_exists():
+            self.ren_box.delete("1.0", "end")
+            self.ren_box.insert("end", f"Rendering MIDI file: {Path(p).name}...\nInstrument: {instrument} | Format: {format_type.upper()}\n")
 
         out = Path(p).with_suffix(f".rendered.{format_type}")
-        try:
-            rendered = MidiRenderer.render_file_to_audio(
-                p,
-                out,
-                sample_rate=self.cfg.sample_rate,
-                instrument=instrument,
-                format_type=format_type,
-            )
-            sz = rendered.stat().st_size / (1024 * 1024)
-            self.ren_box.insert("end", f"✓ Successfully synthesized MIDI to audio!\nOutput: {rendered} ({sz:.2f} MB)\n")
-            self._refresh_library_list()
-        except Exception as ex:
-            self.ren_box.insert("end", f"✗ Synthesis failed: {ex}\n")
+        
+        def render_worker():
+            try:
+                rendered = MidiRenderer.render_file_to_audio(
+                    p,
+                    out,
+                    sample_rate=self.cfg.sample_rate,
+                    instrument=instrument,
+                    format_type=format_type,
+                )
+                success = rendered.exists() and rendered.stat().st_size > 0
+                sz = (rendered.stat().st_size / (1024 * 1024)) if success else 0.0
+            except Exception as render_ex:
+                rendered = None
+                success = False
+                render_err = str(render_ex)
+            else:
+                render_err = None
+
+            def ui_update():
+                if success:
+                    try:
+                        if hasattr(self, "ren_box") and self.ren_box.winfo_exists():
+                            self.ren_box.insert("end", f"✓ Successfully synthesized MIDI to audio!\nOutput: {rendered} ({sz:.2f} MB)\n")
+                        self._refresh_library_list()
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        if hasattr(self, "ren_box") and self.ren_box.winfo_exists():
+                            self.ren_box.insert("end", f"✗ Synthesis failed: {render_err}\n")
+                    except Exception:
+                        pass
+
+            self.after(0, ui_update)
+
+        threading.Thread(target=render_worker, daemon=True).start()
 
     def _refresh_library_list(self):
         if not hasattr(self, "lib_box"):

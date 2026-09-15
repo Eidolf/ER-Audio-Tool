@@ -86,6 +86,25 @@ class ConfigManager:
         base.mkdir(parents=True, exist_ok=True)
         return base
 
+    def get_extension_dir(self) -> Path:
+        """Returns the persistent directory where the browser extension is installed."""
+        ext_dir = self.get_app_music_dir() / "BrowserExtension"
+        ext_dir.mkdir(parents=True, exist_ok=True)
+        return ext_dir
+
+    def install_or_update_extension(self) -> Path:
+        """Copies bundled extension files from app resources into the persistent user directory."""
+        dest = self.get_extension_dir()
+        src = Path(__file__).resolve().parent.parent.parent / "browser_extension"
+        if src.exists() and src.is_dir():
+            for item in src.iterdir():
+                if item.is_file():
+                    target_file = dest / item.name
+                    # Only overwrite if source is newer or target missing
+                    if not target_file.exists() or item.stat().st_mtime > target_file.stat().st_mtime:
+                        shutil.copy2(item, target_file)
+        return dest
+
     def default_output_dir(self) -> str:
         rec_dir = self.get_app_music_dir() / "Recordings"
         rec_dir.mkdir(parents=True, exist_ok=True)

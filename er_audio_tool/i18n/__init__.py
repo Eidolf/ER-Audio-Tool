@@ -106,6 +106,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # Legal & Privacy
         "legal_notice": "Notice: Only record content you have authorization to capture. er-audio-tool does not bypass protected media restrictions.",
         "privacy_guarantee": "Local-First: 100% offline. Zero telemetry or cloud transmission.",
+
+        # Browser Connection
+        "browser_pairing_title": "Companion Extension Setup & Pairing",
+        "browser_pairing_desc": "Pair the Chrome or Edge companion extension to capture active browser tabs with explicit consent.",
+        "browser_token_label": "Session Pairing Token:",
+        "browser_token_masked": "••••••••••••••••••••••••••••••••",
+        "btn_show_token": "Show Token",
+        "btn_hide_token": "Hide Token",
+        "btn_copy_token": "Copy Token",
+        "btn_regen_token": "Regenerate Token",
+        "browser_path_label": "Extension Directory (Load Unpacked):",
+        "btn_copy_path": "Copy Path",
+        "btn_open_folder": "Open Folder",
+        "btn_reinstall_ext": "Reinstall / Update Extension",
+        "token_copied_msg": "✓ Token copied to clipboard!",
+        "path_copied_msg": "✓ Path copied to clipboard!",
+        "ext_status_ready": "Status: Ready on loopback interface (127.0.0.1)",
+        "ext_installed_msg": "✓ Extension files extracted and verified at persistent location.",
         
         # Codecs & FFmpeg Downloader
         "codecs_title": "FFmpeg & Audio Codec Pack Management",
@@ -235,6 +253,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # Legal & Privacy
         "legal_notice": "Hinweis: Bitte beachten Sie Urheberrechtsgesetze. er-audio-tool umgeht keinen Kopierschutz.",
         "privacy_guarantee": "Lokal-Zuerst: 100% offline. Keine Telemetrie oder Cloud-Übertragung.",
+
+        # Browser Connection
+        "browser_pairing_title": "Browser-Erweiterungs-Einrichtung & Kopplung",
+        "browser_pairing_desc": "Koppeln Sie die Begleiterweiterung für Chrome oder Edge, um aktive Browser-Tabs mit expliziter Freigabe aufzunehmen.",
+        "browser_token_label": "Sitzungs-Kopplungstoken:",
+        "browser_token_masked": "••••••••••••••••••••••••••••••••",
+        "btn_show_token": "Token anzeigen",
+        "btn_hide_token": "Token verbergen",
+        "btn_copy_token": "Token kopieren",
+        "btn_regen_token": "Neues Token erzeugen",
+        "browser_path_label": "Erweiterungsverzeichnis (Entpackte Erweiterung laden):",
+        "btn_copy_path": "Pfad kopieren",
+        "btn_open_folder": "Ordner öffnen",
+        "btn_reinstall_ext": "Erweiterungsdateien neu installieren",
+        "token_copied_msg": "✓ Token in die Zwischenablage kopiert!",
+        "path_copied_msg": "✓ Pfad in die Zwischenablage kopiert!",
+        "ext_status_ready": "Status: Bereit auf Loopback-Schnittstelle (127.0.0.1)",
+        "ext_installed_msg": "✓ Erweiterungsdateien im persistenten Benutzerordner eingerichtet und verifiziert.",
         
         # Codecs & FFmpeg Downloader
         "codecs_title": "FFmpeg & Audio-Codec-Pack Verwaltung",

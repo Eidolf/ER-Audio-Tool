@@ -63,18 +63,37 @@ class MidiRenderer:
         audio = np.zeros(total_samples, dtype=np.float32)
 
         for n in notes:
-            # Frequency from MIDI pitch
-            freq = 440.0 * (2.0 ** ((n.pitch - 69) / 12.0))
             start_sample = int(n.start_time * sample_rate)
             dur_samples = int(n.duration * sample_rate)
             end_sample = min(total_samples, start_sample + dur_samples)
-
             length = end_sample - start_sample
             if length <= 0:
                 continue
 
             t = np.arange(length) / sample_rate
-            # Additive synthesis using instrument harmonics profile
+
+            # Handle Drum / Percussion Channel (MIDI Channel 9 / 10)
+            if n.channel == 9:
+                if n.pitch in (35, 36):  # Bass Drum / Kick
+                    f_sweep = 120.0 * np.exp(-30.0 * t) + 45.0
+                    wave = np.sin(2 * np.pi * f_sweep * t).astype(np.float32)
+                    env = np.exp(-12.0 * t).astype(np.float32)
+                elif n.pitch in (38, 40):  # Snare
+                    noise = (np.random.rand(length) * 2.0 - 1.0).astype(np.float32)
+                    tone = np.sin(2 * np.pi * 180.0 * t).astype(np.float32)
+                    wave = 0.7 * noise + 0.3 * tone
+                    env = np.exp(-18.0 * t).astype(np.float32)
+                else:  # Hi-Hat / Cymbal
+                    noise = (np.random.rand(length) * 2.0 - 1.0).astype(np.float32)
+                    wave = noise
+                    env = np.exp(-40.0 * t).astype(np.float32)
+
+                gain = (n.velocity / 127.0) * 0.5
+                audio[start_sample:end_sample] += (wave * env * gain).astype(np.float32)
+                continue
+
+            # Melodic instrument synthesis
+            freq = 440.0 * (2.0 ** ((n.pitch - 69) / 12.0))
             harmonics = cls.INSTRUMENT_HARMONICS.get(instrument, cls.INSTRUMENT_HARMONICS["acoustic_piano"])
             wave = np.zeros(length, dtype=np.float32)
             for h_idx, weight in enumerate(harmonics, start=1):
