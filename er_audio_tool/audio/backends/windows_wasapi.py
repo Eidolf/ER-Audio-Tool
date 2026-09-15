@@ -105,45 +105,73 @@ class WindowsWasapiBackend(AudioCaptureBackend):
         # Query native device parameters to match hardware channels exactly
         target_sr = sample_rate
         target_ch = channels
+        native_out_ch = 0
+        native_in_ch = 0
         try:
             d_info = sd.query_devices(device.id)
             native_sr = int(d_info.get("default_samplerate", sample_rate))
-            # On WASAPI loopback, the input stream records from the output endpoint:
-            out_ch = int(d_info.get("max_output_channels", 0))
-            in_ch = int(d_info.get("max_input_channels", 0))
-            device_ch = out_ch if out_ch > 0 else (in_ch if in_ch > 0 else channels)
-            target_ch = device_ch if device_ch > 0 else channels
+            native_out_ch = int(d_info.get("max_output_channels", 0))
+            native_in_ch = int(d_info.get("max_input_channels", 0))
+            if native_out_ch > 0:
+                target_ch = native_out_ch
+            elif native_in_ch > 0:
+                target_ch = native_in_ch
+            else:
+                target_ch = channels
             target_sr = native_sr if native_sr > 0 else sample_rate
         except Exception:
             pass
 
-        # Attempt stream opening with fallback strategy for channels/rates
+        def sd_callback(indata, frames, time_info, status):
+            if self._running and callback:
+                data = indata.copy()
+                # If callback expects a specific number of channels, adapt if necessary
+                if channels == 1 and data.shape[1] > 1:
+                    data = np.mean(data, axis=1, keepdims=True)
+                elif channels == 2 and data.shape[1] == 1:
+                    data = np.column_stack((data, data))
+                elif channels > 0 and data.shape[1] > channels:
+                    data = data[:, :channels]
+                callback(data)
+
+        # Attempt stream opening with comprehensive fallback strategy for channels/rates
         stream_opened = False
         candidates = [
-            (target_ch, target_sr),
-            (device.channels if device.channels > 0 else 2, target_sr),
-            (2, target_sr),
-            (1, target_sr),
-            (target_ch, sample_rate),
-            (2, sample_rate),
+            # 1. Native output channels with native rate & loopback
+            (target_ch, target_sr, wasapi_settings),
+            # 2. 2-channel stereo with native rate & loopback
+            (2, target_sr, wasapi_settings),
+            # 3. Native output channels with requested sample_rate
+            (target_ch, sample_rate, wasapi_settings),
+            # 4. 2-channel with requested sample_rate
+            (2, sample_rate, wasapi_settings),
+            # 5. Device reported channels
+            (device.channels if device.channels > 0 else 2, target_sr, wasapi_settings),
+            # 6. Mono fallback
+            (1, target_sr, wasapi_settings),
+            # 7. Fallbacks without explicit extra_settings (e.g. if device is a virtual cable / input)
+            (target_ch, target_sr, None),
+            (2, target_sr, None),
+            (1, target_sr, None),
         ]
-        # De-duplicate while preserving order
+
         seen = set()
         unique_candidates = []
-        for c, s in candidates:
-            if (c, s) not in seen:
-                seen.add((c, s))
-                unique_candidates.append((c, s))
+        for c, s, w in candidates:
+            k = (c, s, w is not None)
+            if k not in seen:
+                seen.add(k)
+                unique_candidates.append((c, s, w))
 
         last_error = None
-        for ch, sr in unique_candidates:
+        for ch, sr, extra in unique_candidates:
             try:
                 self._stream = sd.InputStream(
                     device=device.id,
                     samplerate=sr,
                     channels=ch,
                     callback=sd_callback,
-                    extra_settings=wasapi_settings,
+                    extra_settings=extra,
                 )
                 self._stream.start()
                 stream_opened = True

@@ -73,16 +73,23 @@ class ConfigManager:
         self.config_file = self.config_dir / "config.json"
         self.config = self.load()
 
-    def default_output_dir(self) -> str:
+    def get_app_music_dir(self) -> Path:
+        """Returns the base organized app directory under the user's Music profile."""
         if self.portable:
-            out = Path(__file__).resolve().parent.parent.parent / "recordings"
+            base = Path(__file__).resolve().parent.parent.parent
         else:
             if os.name == "nt":
-                out = Path(os.getenv("USERPROFILE", "")) / "Music" / "Recordings"
+                user_prof = os.getenv("USERPROFILE", "")
+                base = Path(user_prof) / "Music" / "er-audio-tool" if user_prof else Path.home() / "Music" / "er-audio-tool"
             else:
-                out = Path.home() / "Music" / "Recordings"
-        out.mkdir(parents=True, exist_ok=True)
-        return str(out)
+                base = Path.home() / "Music" / "er-audio-tool"
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+
+    def default_output_dir(self) -> str:
+        rec_dir = self.get_app_music_dir() / "Recordings"
+        rec_dir.mkdir(parents=True, exist_ok=True)
+        return str(rec_dir)
 
     def load(self) -> AppConfig:
         if not self.config_file.exists():

@@ -14,6 +14,34 @@ from er_audio_tool.midi.model import NoteEvent
 class MidiRenderer:
     """Renders MIDI files or note events to audio using internal wavetable or fluidsynth."""
 
+    INSTRUMENT_HARMONICS = {
+        "acoustic_piano": [0.55, 0.25, 0.12, 0.05, 0.02, 0.01],
+        "electric_piano": [0.45, 0.35, 0.15, 0.03, 0.01, 0.01],
+        "strings": [0.30, 0.25, 0.20, 0.12, 0.08, 0.05],
+        "synth_lead": [0.40, 0.20, 0.20, 0.10, 0.06, 0.04],
+        "bass": [0.70, 0.22, 0.06, 0.02],
+    }
+
+    @classmethod
+    def render_file_to_audio(
+        cls,
+        midi_path: Path | str,
+        output_path: Path | str,
+        sample_rate: int = 44100,
+        instrument: str = "acoustic_piano",
+        format_type: str = "mp3",
+    ) -> Path:
+        """Parses a real .mid file and renders its actual notes to high-quality audio."""
+        from er_audio_tool.midi.model import MidiParser
+        notes = MidiParser.parse_midi_file(midi_path)
+        return cls.render_notes_to_audio(
+            notes,
+            output_path,
+            sample_rate=sample_rate,
+            instrument=instrument,
+            format_type=format_type,
+        )
+
     @classmethod
     def render_notes_to_audio(
         cls,
@@ -46,13 +74,13 @@ class MidiRenderer:
                 continue
 
             t = np.arange(length) / sample_rate
-            # Additive synthesis with harmonics for richer acoustic tone
-            wave = (
-                0.6 * np.sin(2 * np.pi * freq * t) +
-                0.25 * np.sin(2 * np.pi * (freq * 2) * t) +
-                0.1 * np.sin(2 * np.pi * (freq * 3) * t) +
-                0.05 * np.sin(2 * np.pi * (freq * 4) * t)
-            )
+            # Additive synthesis using instrument harmonics profile
+            harmonics = cls.INSTRUMENT_HARMONICS.get(instrument, cls.INSTRUMENT_HARMONICS["acoustic_piano"])
+            wave = np.zeros(length, dtype=np.float32)
+            for h_idx, weight in enumerate(harmonics, start=1):
+                h_freq = freq * h_idx
+                if h_freq < (sample_rate / 2.0):  # Nyquist limit
+                    wave += (weight * np.sin(2 * np.pi * h_freq * t)).astype(np.float32)
 
             # ADSR envelope (Attack, Decay, Sustain, Release)
             attack_len = min(length, int(0.01 * sample_rate))

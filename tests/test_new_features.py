@@ -101,3 +101,38 @@ def test_codec_manager_and_exit_lifecycle():
         assert cm.delete_local_codecs() is True
         assert cm.has_local_ffmpeg() is False
         assert not cm.get_codecs_dir().exists()
+
+
+def test_midi_parser_and_instrument_renderer():
+    from er_audio_tool.midi.model import MidiExporter, MidiParser, NoteEvent
+    from er_audio_tool.midi.renderer import MidiRenderer
+    from er_audio_tool.midi.transcriber import AudioToMidiTranscriber
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        p = Path(tmpdir) / "scale.mid"
+        test_notes = [
+            NoteEvent(pitch=60, start_time=0.0, duration=0.2),
+            NoteEvent(pitch=64, start_time=0.25, duration=0.2),
+            NoteEvent(pitch=67, start_time=0.5, duration=0.3),
+        ]
+        MidiExporter.export_midi(test_notes, p)
+        assert p.exists()
+
+        # Parse .mid
+        parsed_notes = MidiParser.parse_midi_file(p)
+        assert len(parsed_notes) == 3
+        assert [n.pitch for n in parsed_notes] == [60, 64, 67]
+
+        # Render with different instruments
+        for inst in ["acoustic_piano", "strings", "synth_lead", "bass"]:
+            out_audio = Path(tmpdir) / f"{inst}.wav"
+            MidiRenderer.render_file_to_audio(
+                p, out_audio, sample_rate=22050, instrument=inst, format_type="wav"
+            )
+            assert out_audio.exists()
+            assert out_audio.stat().st_size > 0
+
+        # Transcribe with profile
+        piano_audio = Path(tmpdir) / "acoustic_piano.wav"
+        transcribed = AudioToMidiTranscriber.transcribe(piano_audio, profile="piano")
+        assert len(transcribed) > 0

@@ -74,9 +74,20 @@ class CodecManager:
     def __init__(self, base_dir: Optional[Path] = None):
         if base_dir:
             self.app_root = base_dir
+            self.codecs_dir = self.app_root / "temp_codecs"
         else:
             self.app_root = Path(__file__).resolve().parent.parent.parent
-        self.codecs_dir = self.app_root / "temp_codecs"
+            # Check organized Music directory first, fallback to app-relative temp_codecs
+            if os.name == "nt":
+                user_prof = os.getenv("USERPROFILE", "")
+                music_codecs = Path(user_prof) / "Music" / "er-audio-tool" / "Codecs" if user_prof else Path.home() / "Music" / "er-audio-tool" / "Codecs"
+            else:
+                music_codecs = Path.home() / "Music" / "er-audio-tool" / "Codecs"
+
+            if (self.app_root / "er-audio-tool.portable").exists():
+                self.codecs_dir = self.app_root / "temp_codecs"
+            else:
+                self.codecs_dir = music_codecs
 
     def get_codecs_dir(self) -> Path:
         return self.codecs_dir

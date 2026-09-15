@@ -108,3 +108,135 @@ class MidiExporter:
             if not header.startswith(b"MThd"):
                 return False
         return True
+
+
+class MidiParser:
+    """Parses Standard MIDI Files (Format 0 and Format 1) into playable NoteEvents."""
+
+    @classmethod
+    def parse_midi_file(cls, path: Path | str) -> list[NoteEvent]:
+        p = Path(path)
+        if not p.exists():
+            return []
+
+        with open(p, "rb") as f:
+            raw = f.read()
+
+        if len(raw) < 14 or not raw.startswith(b"MThd"):
+            return []
+
+        # Header: magic (4s), length (I=6), format (H), ntrks (H), division (H)
+        magic, hlen, fmt, ntrks, division = struct.unpack(">4sIHHH", raw[:14])
+        ticks_per_beat = division if (division & 0x8000) == 0 else 480
+        default_tempo_us = 500_000  # 120 BPM
+
+        notes: list[NoteEvent] = []
+        offset = 14
+
+        for _ in range(ntrks):
+            if offset + 8 > len(raw):
+                break
+            chunk_type = raw[offset:offset + 4]
+            chunk_len = struct.unpack(">I", raw[offset + 4:offset + 8])[0]
+            offset += 8
+            track_end = offset + chunk_len
+            if chunk_type != b"MTrk":
+                offset = track_end
+                continue
+
+            # Parse track events
+            current_tick = 0
+            open_notes: dict[tuple[int, int], tuple[int, int]] = {}  # (channel, pitch) -> (start_tick, velocity)
+            running_status = 0
+            tempo_us = default_tempo_us
+
+            while offset < track_end and offset < len(raw):
+                # Variable length delta time
+                delta = 0
+                while offset < len(raw):
+                    b = raw[offset]
+                    offset += 1
+                    delta = (delta << 7) | (b & 0x7F)
+                    if not (b & 0x80):
+                        break
+
+                current_tick += delta
+                if offset >= len(raw):
+                    break
+
+                status = raw[offset]
+                if status & 0x80:
+                    running_status = status
+                    offset += 1
+                else:
+                    status = running_status
+
+                event_type = status & 0xF0
+                channel = status & 0x0F
+
+                if status == 0xFF:
+                    # Meta event
+                    if offset >= len(raw):
+                        break
+                    meta_type = raw[offset]
+                    offset += 1
+                    meta_len = 0
+                    while offset < len(raw):
+                        mb = raw[offset]
+                        offset += 1
+                        meta_len = (meta_len << 7) | (mb & 0x7F)
+                        if not (mb & 0x80):
+                            break
+                    meta_data = raw[offset:offset + meta_len]
+                    offset += meta_len
+
+                    if meta_type == 0x51 and len(meta_data) == 3:  # Set Tempo
+                        tempo_us = int.from_bytes(meta_data, "big")
+                    elif meta_type == 0x2F:  # End of track
+                        break
+
+                elif status in (0xF0, 0xF7):
+                    # SysEx
+                    sysex_len = 0
+                    while offset < len(raw):
+                        sb = raw[offset]
+                        offset += 1
+                        sysex_len = (sysex_len << 7) | (sb & 0x7F)
+                        if not (sb & 0x80):
+                            break
+                    offset += sysex_len
+
+                elif event_type in (0x80, 0x90, 0xA0, 0xB0, 0xE0):
+                    # 2 data bytes
+                    if offset + 1 >= len(raw):
+                        break
+                    d1 = raw[offset]
+                    d2 = raw[offset + 1]
+                    offset += 2
+
+                    if event_type == 0x90 and d2 > 0:
+                        # Note On
+                        open_notes[(channel, d1)] = (current_tick, d2)
+                    elif event_type == 0x80 or (event_type == 0x90 and d2 == 0):
+                        # Note Off
+                        if (channel, d1) in open_notes:
+                            start_tick, vel = open_notes.pop((channel, d1))
+                            sec_per_tick = (tempo_us / 1_000_000.0) / ticks_per_beat
+                            start_time = start_tick * sec_per_tick
+                            dur = max(0.05, (current_tick - start_tick) * sec_per_tick)
+                            notes.append(NoteEvent(pitch=d1, start_time=start_time, duration=dur, velocity=vel, channel=channel))
+
+                elif event_type in (0xC0, 0xD0):
+                    # 1 data byte
+                    offset += 1
+
+            # Close dangling notes
+            for (channel, pitch), (start_tick, vel) in open_notes.items():
+                sec_per_tick = (tempo_us / 1_000_000.0) / ticks_per_beat
+                start_time = start_tick * sec_per_tick
+                dur = max(0.05, (current_tick - start_tick) * sec_per_tick)
+                notes.append(NoteEvent(pitch=pitch, start_time=start_time, duration=dur, velocity=vel, channel=channel))
+
+        # Sort notes chronologically
+        notes.sort(key=lambda n: n.start_time)
+        return notes

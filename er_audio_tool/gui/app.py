@@ -379,10 +379,18 @@ class ErAudioApp(ctk.CTk):
 
         top_bar = ctk.CTkFrame(f, fg_color="transparent")
         top_bar.pack(fill="x", pady=8)
-        ctk.CTkButton(top_bar, text=self.i18n.t("btn_run_tests"), width=160, command=self._on_run_diagnostics).pack(side="left")
+        self.diag_btn = ctk.CTkButton(top_bar, text=self.i18n.t("btn_run_tests"), width=160, command=self._on_run_diagnostics)
+        self.diag_btn.pack(side="left")
 
-        self.diag_box = ctk.CTkTextbox(f, height=450)
-        self.diag_box.pack(expand=True, fill="both", pady=10)
+        self.diag_status_lbl = ctk.CTkLabel(top_bar, text="Ready", text_color="#90a4ae", font=ctk.CTkFont(size=12))
+        self.diag_status_lbl.pack(side="left", padx=15)
+
+        self.diag_progress = ctk.CTkProgressBar(f, height=6)
+        self.diag_progress.pack(fill="x", pady=(2, 8))
+        self.diag_progress.set(0.0)
+
+        self.diag_box = ctk.CTkTextbox(f, height=430)
+        self.diag_box.pack(expand=True, fill="both", pady=5)
         self._on_run_diagnostics()
 
     def _render_browser_device_view(self):
@@ -423,12 +431,24 @@ class ErAudioApp(ctk.CTk):
         ctk.CTkLabel(f, text=self.i18n.t("nav_ana_midi"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 15))
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x", pady=5)
-        self.midi_input_entry = ctk.CTkEntry(row, width=450, placeholder_text="Audio file to transcribe...")
+        self.midi_input_entry = ctk.CTkEntry(row, width=400, placeholder_text="Audio file to transcribe...")
         self.midi_input_entry.pack(side="left", padx=(0, 10))
         ctk.CTkButton(row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_midi_file).pack(side="left")
-        ctk.CTkButton(row, text=self.i18n.t("btn_transcribe"), width=140, command=self._on_run_transcribe).pack(side="left", padx=10)
 
-        self.midi_box = ctk.CTkTextbox(f, height=350)
+        opt_row = ctk.CTkFrame(f, fg_color="transparent")
+        opt_row.pack(fill="x", pady=8)
+        ctk.CTkLabel(opt_row, text="Profile:").pack(side="left", padx=(0, 5))
+        self.midi_profile_combo = ctk.CTkComboBox(
+            opt_row,
+            values=["melody", "piano", "bass", "vocals", "percussive"],
+            width=140,
+        )
+        self.midi_profile_combo.set("melody")
+        self.midi_profile_combo.pack(side="left", padx=(0, 15))
+
+        ctk.CTkButton(opt_row, text=self.i18n.t("btn_transcribe"), width=150, command=self._on_run_transcribe).pack(side="left")
+
+        self.midi_box = ctk.CTkTextbox(f, height=330)
         self.midi_box.pack(expand=True, fill="both", pady=15)
 
     def _render_render_view(self):
@@ -438,12 +458,33 @@ class ErAudioApp(ctk.CTk):
         ctk.CTkLabel(f, text=self.i18n.t("nav_ana_render"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 15))
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x", pady=5)
-        self.ren_midi_entry = ctk.CTkEntry(row, width=450, placeholder_text="Select .mid file...")
+        self.ren_midi_entry = ctk.CTkEntry(row, width=400, placeholder_text="Select .mid file...")
         self.ren_midi_entry.pack(side="left", padx=(0, 10))
         ctk.CTkButton(row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_render_file).pack(side="left")
-        ctk.CTkButton(row, text=self.i18n.t("btn_render_midi"), width=140, command=self._on_run_render).pack(side="left", padx=10)
 
-        self.ren_box = ctk.CTkTextbox(f, height=350)
+        opt_row = ctk.CTkFrame(f, fg_color="transparent")
+        opt_row.pack(fill="x", pady=8)
+        ctk.CTkLabel(opt_row, text="Instrument:").pack(side="left", padx=(0, 5))
+        self.ren_inst_combo = ctk.CTkComboBox(
+            opt_row,
+            values=["acoustic_piano", "electric_piano", "strings", "synth_lead", "bass"],
+            width=150,
+        )
+        self.ren_inst_combo.set("acoustic_piano")
+        self.ren_inst_combo.pack(side="left", padx=(0, 15))
+
+        ctk.CTkLabel(opt_row, text="Format:").pack(side="left", padx=(0, 5))
+        self.ren_fmt_combo = ctk.CTkComboBox(
+            opt_row,
+            values=["mp3", "wav", "flac"],
+            width=100,
+        )
+        self.ren_fmt_combo.set("mp3")
+        self.ren_fmt_combo.pack(side="left", padx=(0, 15))
+
+        ctk.CTkButton(opt_row, text=self.i18n.t("btn_render_midi"), width=150, command=self._on_run_render).pack(side="left")
+
+        self.ren_box = ctk.CTkTextbox(f, height=330)
         self.ren_box.pack(expand=True, fill="both", pady=15)
 
     def _render_library_view(self):
@@ -810,15 +851,45 @@ class ErAudioApp(ctk.CTk):
             self.conv_status_box.insert("end", f"✗ Conversion Failed: {res.error_message}\n")
 
     def _on_run_diagnostics(self):
+        if not hasattr(self, "diag_box"):
+            return
         self.diag_box.delete("1.0", "end")
-        self.diag_box.insert("end", "Running Hardware & Software Diagnostics...\n\n")
-        items = DiagnosticRunner.run_all_tests(self.cfg.output_dir)
-        for it in items:
-            symbol = "✓" if it.status == "PASSED" else ("⚠" if it.status == "WARNING" else "✗")
-            self.diag_box.insert("end", f"[{symbol} {it.status}] {it.category} > {it.name}\n  Details: {it.details}\n")
-            if it.recommendation:
-                self.diag_box.insert("end", f"  Action: {it.recommendation}\n")
-            self.diag_box.insert("end", "\n")
+        self.diag_box.insert("end", "Initializing Hardware & Software Diagnostics...\n\n")
+        if hasattr(self, "diag_btn"):
+            self.diag_btn.configure(state="disabled")
+        if hasattr(self, "diag_status_lbl"):
+            self.diag_status_lbl.configure(text="Running tests...", text_color="#ffb74d")
+        if hasattr(self, "diag_progress"):
+            self.diag_progress.set(0.1)
+
+        def worker():
+            import time
+            steps = [0.25, 0.5, 0.75, 0.95]
+            for s in steps:
+                time.sleep(0.08)
+                self.after(0, lambda val=s: self.diag_progress.set(val) if hasattr(self, "diag_progress") else None)
+
+            items = DiagnosticRunner.run_all_tests(self.cfg.output_dir)
+
+            def update_ui():
+                self.diag_box.delete("1.0", "end")
+                for it in items:
+                    symbol = "✓" if it.status == "PASSED" else ("⚠" if it.status == "WARNING" else "✗")
+                    self.diag_box.insert("end", f"[{symbol} {it.status}] {it.category} > {it.name}\n  Details: {it.details}\n")
+                    if it.recommendation:
+                        self.diag_box.insert("end", f"  Action: {it.recommendation}\n")
+                    self.diag_box.insert("end", "\n")
+
+                if hasattr(self, "diag_progress"):
+                    self.diag_progress.set(1.0)
+                if hasattr(self, "diag_status_lbl"):
+                    self.diag_status_lbl.configure(text="✓ Diagnostics Complete", text_color="#4db6ac")
+                if hasattr(self, "diag_btn"):
+                    self.diag_btn.configure(state="normal")
+
+            self.after(0, update_ui)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _on_run_analysis(self):
         p = self.ana_file_entry.get().strip()
@@ -831,25 +902,46 @@ class ErAudioApp(ctk.CTk):
     def _on_run_transcribe(self):
         p = self.midi_input_entry.get().strip()
         if not p or not Path(p).exists():
+            messagebox.showerror(self.i18n.t("error"), "Please select an existing audio file.")
             return
+        prof_c = getattr(self, "midi_profile_combo", None)
+        profile = prof_c.get().lower() if prof_c else "melody"
+
         self.midi_box.delete("1.0", "end")
-        self.midi_box.insert("end", "Transcribing audio to MIDI...\n")
-        notes = AudioToMidiTranscriber.transcribe(p)
+        self.midi_box.insert("end", f"Transcribing audio to MIDI with profile '{profile}'...\n")
+        notes = AudioToMidiTranscriber.transcribe(p, profile=profile)
         out = Path(p).with_suffix(".mid")
         MidiExporter.export_midi(notes, out)
-        self.midi_box.insert("end", f"Exported {len(notes)} note events to: {out}\n")
+        self.midi_box.insert("end", f"✓ Exported {len(notes)} note events to: {out}\n")
         self._refresh_library_list()
 
     def _on_run_render(self):
         p = self.ren_midi_entry.get().strip()
         if not p or not Path(p).exists():
+            messagebox.showerror(self.i18n.t("error"), "Please select an existing .mid file.")
             return
+        inst = getattr(self, "ren_inst_combo", None)
+        instrument = inst.get() if inst else "acoustic_piano"
+        fmt_c = getattr(self, "ren_fmt_combo", None)
+        format_type = fmt_c.get().lower() if fmt_c else "mp3"
+
         self.ren_box.delete("1.0", "end")
-        out = Path(p).with_suffix(".rendered.mp3")
-        notes = [NoteEvent(pitch=60 + i, start_time=i * 0.25, duration=0.3) for i in range(8)]
-        MidiRenderer.render_notes_to_audio(notes, out)
-        self.ren_box.insert("end", f"Rendered MIDI to MP3: {out}\n")
-        self._refresh_library_list()
+        self.ren_box.insert("end", f"Rendering MIDI file: {Path(p).name}...\nInstrument: {instrument} | Format: {format_type.upper()}\n")
+
+        out = Path(p).with_suffix(f".rendered.{format_type}")
+        try:
+            rendered = MidiRenderer.render_file_to_audio(
+                p,
+                out,
+                sample_rate=self.cfg.sample_rate,
+                instrument=instrument,
+                format_type=format_type,
+            )
+            sz = rendered.stat().st_size / (1024 * 1024)
+            self.ren_box.insert("end", f"✓ Successfully synthesized MIDI to audio!\nOutput: {rendered} ({sz:.2f} MB)\n")
+            self._refresh_library_list()
+        except Exception as ex:
+            self.ren_box.insert("end", f"✗ Synthesis failed: {ex}\n")
 
     def _refresh_library_list(self):
         if not hasattr(self, "lib_box"):
