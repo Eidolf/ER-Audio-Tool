@@ -5,8 +5,11 @@ import pytest
 from er_audio_tool.browser.server import BrowserServer
 
 
-@pytest.mark.asyncio
-async def test_browser_server_auth():
+def test_browser_server_auth():
+    asyncio.run(_run_browser_auth_test())
+
+
+async def _run_browser_auth_test():
     server = BrowserServer(host="127.0.0.1", port=59123)
     await server.start()
 
