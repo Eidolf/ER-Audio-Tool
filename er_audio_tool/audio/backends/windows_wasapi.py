@@ -90,20 +90,69 @@ class WindowsWasapiBackend(AudioCaptureBackend):
                 callback(indata.copy())
 
         # In sounddevice, loopback on WASAPI is enabled using extra_settings
+        wasapi_settings = None
         try:
-            # sounddevice.WasapiSettings(loopback=True)
             wasapi_settings = sd.WasapiSettings(loopback=True)
+        except TypeError:
+            try:
+                wasapi_settings = sd.WasapiSettings()
+                setattr(wasapi_settings, "loopback", True)
+            except Exception:
+                pass
         except Exception:
-            wasapi_settings = None
+            pass
 
-        self._stream = sd.InputStream(
-            device=device.id,
-            samplerate=sample_rate,
-            channels=channels,
-            callback=sd_callback,
-            extra_settings=wasapi_settings,
-        )
-        self._stream.start()
+        # Query native device parameters to match hardware channels exactly
+        target_sr = sample_rate
+        target_ch = channels
+        try:
+            d_info = sd.query_devices(device.id)
+            native_sr = int(d_info.get("default_samplerate", sample_rate))
+            # On WASAPI loopback, the input stream records from the output endpoint:
+            out_ch = int(d_info.get("max_output_channels", 0))
+            in_ch = int(d_info.get("max_input_channels", 0))
+            device_ch = out_ch if out_ch > 0 else (in_ch if in_ch > 0 else channels)
+            target_ch = device_ch if device_ch > 0 else channels
+            target_sr = native_sr if native_sr > 0 else sample_rate
+        except Exception:
+            pass
+
+        # Attempt stream opening with fallback strategy for channels/rates
+        stream_opened = False
+        candidates = [
+            (target_ch, target_sr),
+            (device.channels if device.channels > 0 else 2, target_sr),
+            (2, target_sr),
+            (1, target_sr),
+            (target_ch, sample_rate),
+            (2, sample_rate),
+        ]
+        # De-duplicate while preserving order
+        seen = set()
+        unique_candidates = []
+        for c, s in candidates:
+            if (c, s) not in seen:
+                seen.add((c, s))
+                unique_candidates.append((c, s))
+
+        last_error = None
+        for ch, sr in unique_candidates:
+            try:
+                self._stream = sd.InputStream(
+                    device=device.id,
+                    samplerate=sr,
+                    channels=ch,
+                    callback=sd_callback,
+                    extra_settings=wasapi_settings,
+                )
+                self._stream.start()
+                stream_opened = True
+                break
+            except Exception as ex:
+                last_error = ex
+
+        if not stream_opened:
+            raise last_error or RuntimeError("Failed to open WASAPI input stream.")
 
     def stop_capture(self) -> None:
         self._running = False

@@ -20,6 +20,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "error": "Error",
         
         # Navigation Main & Submenus
+        "nav_setup": "Setup & Codecs",
+        "nav_codecs_install": "FFmpeg Codec Pack",
         "nav_record": "Record",
         "nav_rec_system": "System Audio",
         "nav_rec_app": "Application Audio",
@@ -119,6 +121,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "codecs_exit_ask": "Ask every time (Prompt to keep or delete temp_codecs)",
         "codecs_exit_keep": "Keep temporary folder for future runs (Recommended)",
         "codecs_exit_delete": "Always delete temporary codec folder on exit",
+        "codecs_missing_banner": "⚠ Notice: FFmpeg codec pack is not installed yet. MP3 encoding and M4A/AAC conversion are limited until codecs are downloaded.",
+        "btn_install_codecs_banner": "Install Codecs Now",
         "btn_download_codecs": "Download & Setup Codecs",
         "btn_purge_codecs": "Delete Local Codecs",
         "codecs_downloading": "Downloading codecs: {info}",
@@ -145,6 +149,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "error": "Fehler",
         
         # Navigation Main & Submenus
+        "nav_setup": "Setup & Codecs",
+        "nav_codecs_install": "FFmpeg Codec-Pack",
         "nav_record": "Aufnahme",
         "nav_rec_system": "System-Audio",
         "nav_rec_app": "Anwendungs-Audio",
@@ -244,6 +250,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "codecs_exit_ask": "Jedes Mal nachfragen (Temporären Ordner löschen oder behalten)",
         "codecs_exit_keep": "Temporären Ordner für nächsten Lauf behalten (Empfohlen)",
         "codecs_exit_delete": "Temporären Codec-Ordner beim Beenden immer löschen",
+        "codecs_missing_banner": "⚠ Hinweis: FFmpeg Codec-Pack ist noch nicht installiert. MP3-Export und M4A/AAC-Konvertierung erfordern das Codec-Pack.",
+        "btn_install_codecs_banner": "Codecs jetzt installieren",
         "btn_download_codecs": "Codecs herunterladen & einrichten",
         "btn_purge_codecs": "Lokale Codecs löschen",
         "codecs_downloading": "Lade Codecs herunter: {info}",

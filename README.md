@@ -1,7 +1,13 @@
 # er-audio-tool
 
-[![CI](https://github.com/skillerious/Loopback-Recorder/actions/workflows/ci.yml/badge.svg)](https://github.com/skillerious/Loopback-Recorder/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<p align="center">
+  <img src="assets/logo.png" alt="er-audio-tool logo" width="180" style="border-radius: 16px;" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/Eidolf/ER-Audio-Tool/actions"><img src="https://github.com/Eidolf/ER-Audio-Tool/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+</p>
 
 A privacy-conscious, local-first desktop audio suite for Windows and Linux. Record system audio, process streams, and browser tabs with zero telemetry, analyze acoustic properties, transcribe audio to standard MIDI, and render MIDI back to MP3 using synthesized instruments.
 

@@ -11,6 +11,7 @@ from typing import Optional
 
 import customtkinter as ctk
 import numpy as np
+from PIL import Image
 
 from er_audio_tool.core.state import AppState, StateMachine
 from er_audio_tool.core.config import ConfigManager
@@ -50,6 +51,17 @@ class ErAudioApp(ctk.CTk):
         self.geometry("1120x760")
         self.minsize(980, 680)
 
+        # Set window icon
+        self._assets_dir = Path(__file__).resolve().parent.parent.parent / "assets"
+        icon_path = self._assets_dir / "app_icon.png"
+        if icon_path.exists():
+            try:
+                # Set Tk window icon
+                self._icon_photo = ctk.CTkImage(light_image=Image.open(icon_path), size=(32, 32))
+                self.iconphoto(False, ctk.CTkImage(light_image=Image.open(icon_path), size=(64, 64))._light_image)
+            except Exception:
+                pass
+
         self._active_backend = self.device_manager.get_active_backend()
         self.codec_manager = get_codec_manager()
         self._codec_download_cancel = threading.Event()
@@ -57,7 +69,12 @@ class ErAudioApp(ctk.CTk):
         self._record_start_time = 0.0
         self._elapsed_paused_time = 0.0
         self._pause_start_time = 0.0
-        self._current_view_name = "rec_system"
+
+        # If codecs are missing, start directly on Setup & Codecs so user can setup immediately
+        if not self.codec_manager.get_active_ffmpeg():
+            self._current_view_name = "set_codecs"
+        else:
+            self._current_view_name = "rec_system"
 
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self._build_shell()
@@ -70,13 +87,24 @@ class ErAudioApp(ctk.CTk):
         self.header_frame = ctk.CTkFrame(self, height=52, corner_radius=0, fg_color="#181818")
         self.header_frame.pack(side="top", fill="x")
 
+        # Application Logo & Title
+        logo_path = self._assets_dir / "app_icon.png"
+        if logo_path.exists():
+            try:
+                logo_img = Image.open(logo_path)
+                self.ctk_logo = ctk.CTkImage(light_image=logo_img, dark_image=logo_img, size=(32, 32))
+                self.logo_label = ctk.CTkLabel(self.header_frame, text="", image=self.ctk_logo)
+                self.logo_label.pack(side="left", padx=(15, 6), pady=8)
+            except Exception:
+                pass
+
         self.title_label = ctk.CTkLabel(
             self.header_frame,
             text="er-audio-tool",
             font=ctk.CTkFont(size=18, weight="bold"),
             text_color="#4db6ac",
         )
-        self.title_label.pack(side="left", padx=20, pady=10)
+        self.title_label.pack(side="left", padx=(4, 15), pady=10)
 
         self.status_label = ctk.CTkLabel(
             self.header_frame,
@@ -102,8 +130,8 @@ class ErAudioApp(ctk.CTk):
         self.sidebar_frame = ctk.CTkScrollableFrame(self.body_frame, width=220, corner_radius=0, fg_color="#202020")
         self.sidebar_frame.pack(side="left", fill="y")
 
-        # Content Area
-        self.content_frame = ctk.CTkFrame(self.body_frame, corner_radius=0, fg_color="#1a1a1a")
+        # Content Area (Scrollable to prevent any card or button cutoff on smaller resolutions)
+        self.content_frame = ctk.CTkScrollableFrame(self.body_frame, corner_radius=0, fg_color="#1a1a1a")
         self.content_frame.pack(side="right", expand=True, fill="both")
 
         self._render_sidebar()
@@ -113,37 +141,40 @@ class ErAudioApp(ctk.CTk):
         for w in self.sidebar_frame.winfo_children():
             w.destroy()
 
-        # Section 1: Record
-        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_record"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(10, 4))
+        # Section 1 (TOP): Setup & Codecs (Essential prerequisite)
+        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_setup"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(10, 4))
+        self._add_nav_btn("nav_codecs_install", "set_codecs")
+
+        # Section 2: Record
+        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_record"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
         self._add_nav_btn("nav_rec_system", "rec_system")
         self._add_nav_btn("nav_rec_app", "rec_app")
         self._add_nav_btn("nav_rec_browser", "rec_browser")
         self._add_nav_btn("nav_rec_test", "rec_test")
 
-        # Section 2: Convert
+        # Section 3: Convert
         ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_convert"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
         self._add_nav_btn("nav_conv_audio", "conv_audio")
         self._add_nav_btn("nav_conv_batch", "conv_batch")
 
-        # Section 3: Analyze & MIDI
+        # Section 4: Analyze & MIDI
         ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_analyze"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
         self._add_nav_btn("nav_ana_audio", "ana_audio")
         self._add_nav_btn("nav_ana_midi", "ana_midi")
         self._add_nav_btn("nav_ana_render", "ana_render")
 
-        # Section 4: Library
+        # Section 5: Library
         ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_library"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
         self._add_nav_btn("nav_lib_recordings", "lib_recordings")
 
-        # Section 5: Devices & Tests
+        # Section 6: Devices & Tests
         ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_devices"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
         self._add_nav_btn("nav_dev_hwtest", "dev_hwtest")
         self._add_nav_btn("nav_dev_browser", "dev_browser")
 
-        # Section 6: Settings & Help
+        # Section 7: Settings & Help
         ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_settings"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
         self._add_nav_btn("nav_set_general", "set_general")
-        self._add_nav_btn("nav_set_codecs", "set_codecs")
 
         ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_help"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
         self._add_nav_btn("nav_help_topics", "help_topics")
@@ -215,6 +246,27 @@ class ErAudioApp(ctk.CTk):
         hdr.pack(fill="x", pady=(0, 15))
         ctk.CTkLabel(hdr, text=self.i18n.t("nav_record"), font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
         ctk.CTkButton(hdr, text="?", width=28, height=28, command=lambda: self._show_help_dialog("system_audio")).pack(side="right")
+
+        # Codec Missing Warning Banner with direct jump to Setup & Codecs
+        if not self.codec_manager.get_active_ffmpeg():
+            warn_card = ctk.CTkFrame(f, fg_color="#3e2723", corner_radius=6)
+            warn_card.pack(fill="x", pady=(0, 15))
+            ctk.CTkLabel(
+                warn_card,
+                text=self.i18n.t("codecs_missing_banner"),
+                text_color="#ffcc80",
+                font=ctk.CTkFont(size=12),
+                wraplength=600,
+                justify="left",
+            ).pack(side="left", padx=12, pady=10)
+            ctk.CTkButton(
+                warn_card,
+                text=self.i18n.t("btn_install_codecs_banner"),
+                fg_color="#00695c",
+                hover_color="#004d40",
+                width=160,
+                command=lambda: self._show_view("set_codecs"),
+            ).pack(side="right", padx=12, pady=10)
 
         # Source Selection
         src_row = ctk.CTkFrame(f, fg_color="transparent")
@@ -515,24 +567,28 @@ class ErAudioApp(ctk.CTk):
 
         # Download & Purge Action Row
         act_row = ctk.CTkFrame(f, fg_color="transparent")
-        act_row.pack(fill="x", pady=5)
+        act_row.pack(fill="x", pady=(10, 5))
 
         self.btn_dl_codecs = ctk.CTkButton(
             act_row,
-            text=self.i18n.t("btn_download_codecs"),
-            fg_color="#00695c",
-            hover_color="#004d40",
-            width=220,
+            text="⬇ " + self.i18n.t("btn_download_codecs"),
+            fg_color="#00897b",
+            hover_color="#00695c",
+            height=42,
+            width=260,
+            font=ctk.CTkFont(size=14, weight="bold"),
             command=self._on_start_download_codecs,
         )
-        self.btn_dl_codecs.pack(side="left", padx=(0, 12))
+        self.btn_dl_codecs.pack(side="left", padx=(0, 15))
 
         self.btn_purge_codecs = ctk.CTkButton(
             act_row,
-            text=self.i18n.t("btn_purge_codecs"),
+            text="🗑 " + self.i18n.t("btn_purge_codecs"),
             fg_color="#c62828",
             hover_color="#b71c1c",
-            width=160,
+            height=42,
+            width=180,
+            font=ctk.CTkFont(size=13),
             command=self._on_purge_codecs_clicked,
         )
         self.btn_purge_codecs.pack(side="left")
