@@ -1,18 +1,19 @@
-"""Modular, polished CustomTkinter Desktop Application for er-audio-tool."""
+"""Professional CustomTkinter GUI with hierarchical navigation, submenus, dynamic i18n, and full workflows."""
 from __future__ import annotations
 import os
+import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+from tkinter import filedialog, messagebox
 from typing import Optional
 
 import customtkinter as ctk
 import numpy as np
 
 from er_audio_tool.core.state import AppState, StateMachine
-from er_audio_tool.core.config import ConfigManager, AppConfig
-from er_audio_tool.core.logging import setup_logging
+from er_audio_tool.core.config import ConfigManager
 from er_audio_tool.i18n import get_i18n
 from er_audio_tool.audio.manager import DeviceManager
 from er_audio_tool.audio.buffer import AudioBuffer
@@ -21,10 +22,13 @@ from er_audio_tool.analysis.analyzer import AudioAnalyzer
 from er_audio_tool.midi.model import NoteEvent, MidiExporter
 from er_audio_tool.midi.transcriber import AudioToMidiTranscriber
 from er_audio_tool.midi.renderer import MidiRenderer
+from er_audio_tool.converter.converter import AudioConverter, ConversionJob
+from er_audio_tool.diagnostics.runner import DiagnosticRunner
+from er_audio_tool.help import get_help_topic
 
 
 class ErAudioApp(ctk.CTk):
-    """Main desktop application window hosting all 8 workspaces."""
+    """Main desktop application window hosting structured navigation and all functional views."""
 
     def __init__(self, config_manager: Optional[ConfigManager] = None):
         super().__init__()
@@ -42,19 +46,24 @@ class ErAudioApp(ctk.CTk):
         ctk.set_appearance_mode(self.cfg.theme)
         ctk.set_default_color_theme("dark-blue")
         self.title(self.i18n.t("app_title"))
-        self.geometry("1080x720")
-        self.minsize(960, 640)
+        self.geometry("1120x760")
+        self.minsize(980, 680)
 
         self._active_backend = self.device_manager.get_active_backend()
         self._recording_data: list[np.ndarray] = []
         self._record_start_time = 0.0
+        self._elapsed_paused_time = 0.0
+        self._pause_start_time = 0.0
+        self._current_view_name = "rec_system"
 
-        self._build_ui()
+        self._build_shell()
+        self.i18n.subscribe(self._on_language_updated)
+        self._show_view(self._current_view_name)
         self._update_loop()
 
-    def _build_ui(self):
-        # Top Header Bar
-        self.header_frame = ctk.CTkFrame(self, height=50, corner_radius=0, fg_color="#181818")
+    def _build_shell(self):
+        # 1. Top Header Bar
+        self.header_frame = ctk.CTkFrame(self, height=52, corner_radius=0, fg_color="#181818")
         self.header_frame.pack(side="top", fill="x")
 
         self.title_label = ctk.CTkLabel(
@@ -67,7 +76,7 @@ class ErAudioApp(ctk.CTk):
 
         self.status_label = ctk.CTkLabel(
             self.header_frame,
-            text=self.i18n.t("status_idle"),
+            text=self.i18n.t("ready"),
             font=ctk.CTkFont(size=13),
             text_color="#b0bec5",
         )
@@ -76,316 +85,512 @@ class ErAudioApp(ctk.CTk):
         self.lang_btn = ctk.CTkSegmentedButton(
             self.header_frame,
             values=["EN", "DE"],
-            command=self._on_lang_changed,
+            command=self._on_lang_switch_clicked,
         )
-        self.lang_btn.set("DE" if self.cfg.language == "de" else "EN")
+        self.lang_btn.set("DE" if self.i18n.current_lang == "de" else "EN")
         self.lang_btn.pack(side="right", padx=20, pady=10)
 
-        # Tabview for all 8 main workspaces
-        self.tabview = ctk.CTkTabview(self, corner_radius=8)
-        self.tabview.pack(expand=True, fill="both", padx=15, pady=15)
+        # 2. Main Body Split: Left Sidebar & Content Canvas
+        self.body_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.body_frame.pack(expand=True, fill="both")
 
-        self.tab_rec = self.tabview.add(self.i18n.t("tab_recorder"))
-        self.tab_lib = self.tabview.add(self.i18n.t("tab_library"))
-        self.tab_ana = self.tabview.add(self.i18n.t("tab_analysis"))
-        self.tab_mid = self.tabview.add(self.i18n.t("tab_midi"))
-        self.tab_ren = self.tabview.add(self.i18n.t("tab_render"))
-        self.tab_set = self.tabview.add(self.i18n.t("tab_settings"))
-        self.tab_dia = self.tabview.add(self.i18n.t("tab_diagnostics"))
-        self.tab_abt = self.tabview.add(self.i18n.t("tab_about"))
+        # Sidebar Navigation
+        self.sidebar_frame = ctk.CTkScrollableFrame(self.body_frame, width=220, corner_radius=0, fg_color="#202020")
+        self.sidebar_frame.pack(side="left", fill="y")
 
-        self._build_recorder_tab()
-        self._build_library_tab()
-        self._build_analysis_tab()
-        self._build_midi_tab()
-        self._build_render_tab()
-        self._build_settings_tab()
-        self._build_diagnostics_tab()
-        self._build_about_tab()
+        # Content Area
+        self.content_frame = ctk.CTkFrame(self.body_frame, corner_radius=0, fg_color="#1a1a1a")
+        self.content_frame.pack(side="right", expand=True, fill="both")
 
-    def _build_recorder_tab(self):
-        # Source Selection
-        src_frame = ctk.CTkFrame(self.tab_rec, fg_color="transparent")
-        src_frame.pack(fill="x", padx=20, pady=10)
+        self._render_sidebar()
 
-        ctk.CTkLabel(src_frame, text=self.i18n.t("source_label"), font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
-        self.devices = self.device_manager.enumerate_all_devices()
-        dev_names = [d.name for d in self.devices] or ["Default Output"]
-        self.source_combo = ctk.CTkComboBox(src_frame, values=dev_names, width=380)
-        self.source_combo.set(dev_names[0])
-        self.source_combo.pack(side="left", padx=10)
+    def _render_sidebar(self):
+        # Clear existing sidebar buttons
+        for w in self.sidebar_frame.winfo_children():
+            w.destroy()
 
-        # Format selector
-        ctk.CTkLabel(src_frame, text=self.i18n.t("format_label"), font=ctk.CTkFont(weight="bold")).pack(side="left", padx=15)
-        self.fmt_combo = ctk.CTkComboBox(src_frame, values=["WAV", "FLAC", "MP3"], width=100)
-        self.fmt_combo.set(self.cfg.format.upper())
-        self.fmt_combo.pack(side="left", padx=5)
+        # Section 1: Record
+        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_record"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(10, 4))
+        self._add_nav_btn("nav_rec_system", "rec_system")
+        self._add_nav_btn("nav_rec_app", "rec_app")
+        self._add_nav_btn("nav_rec_browser", "rec_browser")
+        self._add_nav_btn("nav_rec_test", "rec_test")
 
-        # VU & Peak Level Meters
-        meter_frame = ctk.CTkFrame(self.tab_rec, fg_color="#1e1e1e", corner_radius=8)
-        meter_frame.pack(fill="x", padx=20, pady=15)
+        # Section 2: Convert
+        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_convert"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
+        self._add_nav_btn("nav_conv_audio", "conv_audio")
+        self._add_nav_btn("nav_conv_batch", "conv_batch")
 
-        self.meter_label = ctk.CTkLabel(meter_frame, text="Levels: Peak -inf dB | RMS -inf dB", font=ctk.CTkFont(size=14))
-        self.meter_label.pack(pady=(10, 5))
+        # Section 3: Analyze & MIDI
+        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_analyze"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
+        self._add_nav_btn("nav_ana_audio", "ana_audio")
+        self._add_nav_btn("nav_ana_midi", "ana_midi")
+        self._add_nav_btn("nav_ana_render", "ana_render")
 
-        self.peak_progress = ctk.CTkProgressBar(meter_frame, height=14)
-        self.peak_progress.set(0.0)
-        self.peak_progress.pack(fill="x", padx=20, pady=5)
+        # Section 4: Library
+        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_library"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
+        self._add_nav_btn("nav_lib_recordings", "lib_recordings")
 
-        self.clip_warn = ctk.CTkLabel(meter_frame, text="", text_color="#ef5350", font=ctk.CTkFont(weight="bold"))
-        self.clip_warn.pack(pady=(2, 8))
+        # Section 5: Devices & Tests
+        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_devices"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
+        self._add_nav_btn("nav_dev_hwtest", "dev_hwtest")
+        self._add_nav_btn("nav_dev_browser", "dev_browser")
 
-        # Main Record Controls
-        btn_frame = ctk.CTkFrame(self.tab_rec, fg_color="transparent")
-        btn_frame.pack(pady=20)
+        # Section 6: Settings & Help
+        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_settings"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
+        self._add_nav_btn("nav_set_general", "set_general")
 
-        self.btn_record = ctk.CTkButton(
-            btn_frame,
-            text="● " + self.i18n.t("record"),
-            fg_color="#e53935",
-            hover_color="#c62828",
-            width=140,
-            height=40,
-            font=ctk.CTkFont(size=15, weight="bold"),
-            command=self._on_record_toggle,
+        ctk.CTkLabel(self.sidebar_frame, text=self.i18n.t("nav_help"), font=ctk.CTkFont(size=13, weight="bold"), text_color="#80cbc4").pack(anchor="w", padx=12, pady=(14, 4))
+        self._add_nav_btn("nav_help_topics", "help_topics")
+        self._add_nav_btn("nav_help_about", "help_about")
+
+    def _add_nav_btn(self, label_key: str, view_id: str):
+        is_active = (self._current_view_name == view_id)
+        btn = ctk.CTkButton(
+            self.sidebar_frame,
+            text=self.i18n.t(label_key),
+            anchor="w",
+            height=30,
+            fg_color="#00695c" if is_active else "transparent",
+            hover_color="#004d40",
+            text_color="#ffffff" if is_active else "#b0bec5",
+            command=lambda: self._show_view(view_id),
         )
-        self.btn_record.pack(side="left", padx=10)
+        btn.pack(fill="x", padx=8, pady=2)
 
-        self.timer_label = ctk.CTkLabel(btn_frame, text="00:00:00", font=ctk.CTkFont(size=16, weight="bold"))
-        self.timer_label.pack(side="left", padx=20)
-
-        # Legal Notice
-        ctk.CTkLabel(
-            self.tab_rec,
-            text=self.i18n.t("legal_reminder"),
-            font=ctk.CTkFont(size=11),
-            text_color="#78909c",
-            wraplength=800,
-        ).pack(side="bottom", pady=15)
-
-    def _build_library_tab(self):
-        f = ctk.CTkFrame(self.tab_lib, fg_color="transparent")
-        f.pack(expand=True, fill="both", padx=20, pady=20)
-        ctk.CTkLabel(f, text="Recorded Audio Files", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", pady=5)
-        self.lib_box = ctk.CTkTextbox(f, height=250)
-        self.lib_box.pack(expand=True, fill="both", pady=10)
-        self._refresh_library_list()
-
-    def _refresh_library_list(self):
-        self.lib_box.delete("1.0", "end")
-        out_dir = Path(self.cfg.output_dir)
-        if out_dir.exists():
-            files = sorted(out_dir.glob("*.*"), key=lambda p: p.stat().st_mtime, reverse=True)
-            for file in files:
-                if file.suffix.lower() in [".wav", ".flac", ".mp3", ".mid"]:
-                    sz_mb = file.stat().st_size / (1024 * 1024)
-                    self.lib_box.insert("end", f"{file.name}  ({sz_mb:.2f} MB) - {file}\n")
-
-    def _build_analysis_tab(self):
-        f = ctk.CTkFrame(self.tab_ana, fg_color="transparent")
-        f.pack(expand=True, fill="both", padx=20, pady=20)
-        ctk.CTkLabel(f, text="Audio Technical & Acoustic Analyzer", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", pady=5)
-        ctk.CTkLabel(f, text="Load any MP3, WAV, or FLAC file for loudness, clipping, tempo, and key estimation.", text_color="#90a4ae").pack(anchor="w")
-
-        top_bar = ctk.CTkFrame(f, fg_color="transparent")
-        top_bar.pack(fill="x", pady=10)
-        self.ana_file_entry = ctk.CTkEntry(top_bar, placeholder_text="Select audio file...", width=500)
-        self.ana_file_entry.pack(side="left", padx=5)
-        ctk.CTkButton(top_bar, text="Analyze", width=120, command=self._on_run_analysis).pack(side="left", padx=10)
-
-        self.ana_result_box = ctk.CTkTextbox(f, height=250)
-        self.ana_result_box.pack(expand=True, fill="both", pady=10)
-
-    def _on_run_analysis(self):
-        path = self.ana_file_entry.get().strip()
-        if not path or not Path(path).exists():
-            self.ana_result_box.delete("1.0", "end")
-            self.ana_result_box.insert("end", "Error: Please specify a valid existing audio file path.\n")
-            return
-        try:
-            rep = AudioAnalyzer.analyze_file(path)
-            self.ana_result_box.delete("1.0", "end")
-            self.ana_result_box.insert("end", f"File: {rep.file_path}\n")
-            self.ana_result_box.insert("end", f"Format: {rep.format} ({rep.bit_depth}) | Channels: {rep.channels} | Sample Rate: {rep.sample_rate} Hz\n")
-            self.ana_result_box.insert("end", f"Duration: {rep.duration_seconds} seconds\n")
-            self.ana_result_box.insert("end", f"Peak Loudness: {rep.peak_db} dBFS | RMS Loudness: {rep.rms_db} dBFS\n")
-            self.ana_result_box.insert("end", f"Estimated Clipping: {'YES (' + str(rep.estimated_clipping_events) + ' samples)' if rep.is_clipping else 'None'}\n")
-            self.ana_result_box.insert("end", f"Estimated Tempo: {rep.estimated_tempo_bpm} BPM (Estimate)\n")
-            self.ana_result_box.insert("end", f"Estimated Key: {rep.estimated_key}\n")
-            if rep.warnings:
-                self.ana_result_box.insert("end", "\nWarnings:\n" + "\n".join(f"- {w}" for w in rep.warnings) + "\n")
-        except Exception as ex:
-            self.ana_result_box.insert("end", f"Analysis error: {ex}\n")
-
-    def _build_midi_tab(self):
-        f = ctk.CTkFrame(self.tab_mid, fg_color="transparent")
-        f.pack(expand=True, fill="both", padx=20, pady=20)
-        ctk.CTkLabel(f, text="Audio to MIDI Transcription", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", pady=5)
-        ctk.CTkLabel(f, text="Transcribe audio melodies and note events offline into standard MIDI (.mid) files.", text_color="#90a4ae").pack(anchor="w")
-
-        top_bar = ctk.CTkFrame(f, fg_color="transparent")
-        top_bar.pack(fill="x", pady=10)
-        self.midi_src_entry = ctk.CTkEntry(top_bar, placeholder_text="Audio file to transcribe...", width=450)
-        self.midi_src_entry.pack(side="left", padx=5)
-
-        self.transcribe_profile = ctk.CTkComboBox(top_bar, values=["Melody", "Monophonic", "Polyphonic", "Piano"], width=130)
-        self.transcribe_profile.set("Melody")
-        self.transcribe_profile.pack(side="left", padx=5)
-
-        ctk.CTkButton(top_bar, text="Transcribe", width=120, command=self._on_transcribe).pack(side="left", padx=10)
-        self.midi_status_box = ctk.CTkTextbox(f, height=220)
-        self.midi_status_box.pack(expand=True, fill="both", pady=10)
-
-    def _on_transcribe(self):
-        path = self.midi_src_entry.get().strip()
-        if not path or not Path(path).exists():
-            self.midi_status_box.insert("end", "Error: Specify a valid audio file path.\n")
-            return
-        self.midi_status_box.delete("1.0", "end")
-        self.midi_status_box.insert("end", "Transcribing audio note events...\n")
-        try:
-            notes = AudioToMidiTranscriber.transcribe(path, profile=self.transcribe_profile.get().lower())
-            out_mid = Path(path).with_suffix(".mid")
-            MidiExporter.export_midi(notes, out_mid)
-            self.midi_status_box.insert("end", f"Success! Transcribed {len(notes)} note events.\n")
-            self.midi_status_box.insert("end", f"Exported Standard MIDI File: {out_mid}\n")
-            self._refresh_library_list()
-        except Exception as ex:
-            self.midi_status_box.insert("end", f"Transcription error: {ex}\n")
-
-    def _build_render_tab(self):
-        f = ctk.CTkFrame(self.tab_ren, fg_color="transparent")
-        f.pack(expand=True, fill="both", padx=20, pady=20)
-        ctk.CTkLabel(f, text="Render MIDI to MP3 / WAV", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", pady=5)
-        ctk.CTkLabel(
-            f,
-            text="Render MIDI performance instructions to audio using synthesized instrument sounds.",
-            text_color="#90a4ae"
-        ).pack(anchor="w")
-
-        top_bar = ctk.CTkFrame(f, fg_color="transparent")
-        top_bar.pack(fill="x", pady=10)
-        self.ren_midi_entry = ctk.CTkEntry(top_bar, placeholder_text="Path to .mid file...", width=450)
-        self.ren_midi_entry.pack(side="left", padx=5)
-
-        self.ren_inst_combo = ctk.CTkComboBox(top_bar, values=["Acoustic Piano", "Electric Piano", "Strings", "Synth Lead"], width=150)
-        self.ren_inst_combo.set("Acoustic Piano")
-        self.ren_inst_combo.pack(side="left", padx=5)
-
-        ctk.CTkButton(top_bar, text="Render to MP3", width=130, command=self._on_render_midi).pack(side="left", padx=10)
-        self.ren_status_box = ctk.CTkTextbox(f, height=220)
-        self.ren_status_box.pack(expand=True, fill="both", pady=10)
-
-    def _on_render_midi(self):
-        path = self.ren_midi_entry.get().strip()
-        if not path or not Path(path).exists():
-            self.ren_status_box.insert("end", "Error: Specify a valid .mid file path.\n")
-            return
-        self.ren_status_box.delete("1.0", "end")
-        self.ren_status_box.insert("end", "Rendering MIDI with synthesized instrument...\n")
-        try:
-            # Generate demo rendered audio
-            notes = [NoteEvent(pitch=60 + i * 2, start_time=i * 0.25, duration=0.4) for i in range(8)]
-            out_mp3 = Path(path).with_suffix(".rendered.mp3")
-            MidiRenderer.render_notes_to_audio(notes, out_mp3, format_type="mp3")
-            self.ren_status_box.insert("end", f"Rendering completed!\nOutput file: {out_mp3}\n")
-            self._refresh_library_list()
-        except Exception as ex:
-            self.ren_status_box.insert("end", f"Rendering error: {ex}\n")
-
-    def _build_settings_tab(self):
-        f = ctk.CTkFrame(self.tab_set, fg_color="transparent")
-        f.pack(expand=True, fill="both", padx=20, pady=20)
-        ctk.CTkLabel(f, text="Preferences & Settings", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", pady=5)
-
-        dir_frame = ctk.CTkFrame(f, fg_color="transparent")
-        dir_frame.pack(fill="x", pady=10)
-        ctk.CTkLabel(dir_frame, text="Recordings Directory:").pack(side="left", padx=5)
-        self.set_dir_entry = ctk.CTkEntry(dir_frame, width=450)
-        self.set_dir_entry.insert(0, self.cfg.output_dir)
-        self.set_dir_entry.pack(side="left", padx=10)
-
-        ctk.CTkButton(f, text="Save Settings", width=140, command=self._on_save_settings).pack(anchor="w", pady=15)
-
-    def _on_save_settings(self):
-        self.cfg.output_dir = self.set_dir_entry.get().strip()
-        self.cm.save(self.cfg)
-
-    def _build_diagnostics_tab(self):
-        f = ctk.CTkFrame(self.tab_dia, fg_color="transparent")
-        f.pack(expand=True, fill="both", padx=20, pady=20)
-        ctk.CTkLabel(f, text="System & Audio Diagnostics", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", pady=5)
-        diag_box = ctk.CTkTextbox(f, height=300)
-        diag_box.pack(expand=True, fill="both", pady=10)
-
-        diag_box.insert("end", f"Python Version: {sys.version}\n")
-        diag_box.insert("end", f"Platform: {sys.platform}\n")
-        diag_box.insert("end", f"Active Backend: {self._active_backend.get_backend_type().value}\n")
-        diag_box.insert("end", f"Detected Capture Devices: {len(self.devices)}\n")
-        for d in self.devices:
-            diag_box.insert("end", f"  - [{d.backend_type.value}] {d.name} ({d.channels} ch, {d.sample_rate} Hz)\n")
-
-    def _build_about_tab(self):
-        f = ctk.CTkFrame(self.tab_abt, fg_color="transparent")
-        f.pack(expand=True, fill="both", padx=20, pady=20)
-        ctk.CTkLabel(f, text="er-audio-tool v1.0.0", font=ctk.CTkFont(size=18, weight="bold"), text_color="#4db6ac").pack(anchor="w", pady=5)
-        about_text = (
-            "er-audio-tool was originally derived from skillerious/Loopback-Recorder by Robin Doak.\n"
-            "The original project is available at https://github.com/skillerious/Loopback-Recorder and is used under the MIT License.\n"
-            "er-audio-tool is an independently maintained project and is not affiliated with or endorsed by the original author.\n\n"
-            "Maintained by: Eidolf\n"
-            "License: MIT License\n"
-            "Privacy: 100% Local-First. No remote audio telemetry or recording data is transmitted."
-        )
-        abt_box = ctk.CTkTextbox(f, height=220)
-        abt_box.pack(expand=True, fill="both", pady=10)
-        abt_box.insert("end", about_text)
-
-    def _on_lang_changed(self, choice: str):
+    def _on_lang_switch_clicked(self, choice: str):
         lang = "de" if choice == "DE" else "en"
         self.cfg.language = lang
         self.cm.save(self.cfg)
         self.i18n.set_language(lang)
 
-    def _on_record_toggle(self):
+    def _on_language_updated(self):
+        self.title(self.i18n.t("app_title"))
+        self._render_sidebar()
+        self._show_view(self._current_view_name)
+
+    def _show_view(self, view_id: str):
+        self._current_view_name = view_id
+        for w in self.content_frame.winfo_children():
+            w.destroy()
+
+        if view_id in ("rec_system", "rec_app", "rec_browser"):
+            self._render_recording_view()
+        elif view_id in ("conv_audio", "conv_batch"):
+            self._render_converter_view()
+        elif view_id == "ana_audio":
+            self._render_analysis_view()
+        elif view_id == "ana_midi":
+            self._render_midi_view()
+        elif view_id == "ana_render":
+            self._render_render_view()
+        elif view_id == "lib_recordings":
+            self._render_library_view()
+        elif view_id in ("dev_hwtest", "rec_test"):
+            self._render_diagnostic_view()
+        elif view_id == "dev_browser":
+            self._render_browser_device_view()
+        elif view_id == "set_general":
+            self._render_settings_view()
+        elif view_id == "help_about":
+            self._render_about_view()
+        else:
+            self._render_help_view()
+
+    # ------------------ WORKSPACE VIEWS ------------------ #
+
+    def _render_recording_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        # Header with Help Button
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.pack(fill="x", pady=(0, 15))
+        ctk.CTkLabel(hdr, text=self.i18n.t("nav_record"), font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkButton(hdr, text="?", width=28, height=28, command=lambda: self._show_help_dialog("system_audio")).pack(side="right")
+
+        # Source Selection
+        src_row = ctk.CTkFrame(f, fg_color="transparent")
+        src_row.pack(fill="x", pady=6)
+        ctk.CTkLabel(src_row, text=self.i18n.t("source_label"), width=120, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        self.devices = self.device_manager.enumerate_all_devices()
+        dev_names = [d.name for d in self.devices] or ["Default Endpoint"]
+        self.source_combo = ctk.CTkComboBox(src_row, values=dev_names, width=420)
+        self.source_combo.set(dev_names[0])
+        self.source_combo.pack(side="left", padx=10)
+
+        # Format Selection
+        fmt_row = ctk.CTkFrame(f, fg_color="transparent")
+        fmt_row.pack(fill="x", pady=6)
+        ctk.CTkLabel(fmt_row, text=self.i18n.t("format_label"), width=120, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        self.fmt_combo = ctk.CTkComboBox(fmt_row, values=["WAV", "FLAC", "MP3"], width=120)
+        self.fmt_combo.set(self.cfg.format.upper())
+        self.fmt_combo.pack(side="left", padx=10)
+
+        # Directory Selection with Browse Button
+        dir_row = ctk.CTkFrame(f, fg_color="transparent")
+        dir_row.pack(fill="x", pady=6)
+        ctk.CTkLabel(dir_row, text=self.i18n.t("output_dir_label"), width=120, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        self.rec_dir_entry = ctk.CTkEntry(dir_row, width=380)
+        self.rec_dir_entry.insert(0, self.cfg.output_dir)
+        self.rec_dir_entry.pack(side="left", padx=10)
+        ctk.CTkButton(dir_row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_rec_dir).pack(side="left")
+
+        # Live Stereo Level Meter Card
+        meter_card = ctk.CTkFrame(f, fg_color="#222222", corner_radius=8)
+        meter_card.pack(fill="x", pady=15, padx=2)
+        ctk.CTkLabel(meter_card, text=self.i18n.t("level_title"), font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=15, pady=(10, 4))
+
+        # Left / Right Stereo Bars
+        self.meter_l = ctk.CTkProgressBar(meter_card, height=10)
+        self.meter_l.set(0.0)
+        self.meter_l.pack(fill="x", padx=15, pady=4)
+
+        self.meter_r = ctk.CTkProgressBar(meter_card, height=10)
+        self.meter_r.set(0.0)
+        self.meter_r.pack(fill="x", padx=15, pady=4)
+
+        self.meter_text = ctk.CTkLabel(meter_card, text="Levels: L -inf dB | R -inf dB | Peak -inf dBFS", font=ctk.CTkFont(size=12))
+        self.meter_text.pack(pady=4)
+
+        self.clip_warn = ctk.CTkLabel(meter_card, text="", text_color="#ef5350", font=ctk.CTkFont(weight="bold"))
+        self.clip_warn.pack(pady=(0, 8))
+
+        # Buttons Bar: Record, Pause, Stop, Cancel
+        ctrls = ctk.CTkFrame(f, fg_color="transparent")
+        ctrls.pack(pady=15)
+
+        self.btn_rec = ctk.CTkButton(ctrls, text="● " + self.i18n.t("btn_record"), fg_color="#e53935", hover_color="#c62828", width=140, height=40, font=ctk.CTkFont(weight="bold"), command=self._on_record_clicked)
+        self.btn_rec.pack(side="left", padx=8)
+
+        self.btn_pause = ctk.CTkButton(ctrls, text="❚❚ " + self.i18n.t("btn_pause"), width=100, height=40, state="disabled", command=self._on_pause_clicked)
+        self.btn_pause.pack(side="left", padx=8)
+
+        self.btn_stop = ctk.CTkButton(ctrls, text="■ " + self.i18n.t("btn_stop"), width=120, height=40, state="disabled", command=self._on_stop_clicked)
+        self.btn_stop.pack(side="left", padx=8)
+
+        self.timer_disp = ctk.CTkLabel(ctrls, text="00:00:00", font=ctk.CTkFont(size=18, weight="bold"))
+        self.timer_disp.pack(side="left", padx=20)
+
+        # Legal Notice
+        ctk.CTkLabel(f, text=self.i18n.t("legal_notice"), font=ctk.CTkFont(size=11), text_color="#78909c", wraplength=700).pack(side="bottom", pady=10)
+
+    def _render_converter_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.pack(fill="x", pady=(0, 15))
+        ctk.CTkLabel(hdr, text=self.i18n.t("nav_conv_audio"), font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkButton(hdr, text="?", width=28, height=28, command=lambda: self._show_help_dialog("audio_converter")).pack(side="right")
+
+        # Select file row
+        sel_row = ctk.CTkFrame(f, fg_color="transparent")
+        sel_row.pack(fill="x", pady=6)
+        self.conv_input_entry = ctk.CTkEntry(sel_row, placeholder_text="Select audio file (M4A, AAC, MP3, WAV, FLAC)...", width=480)
+        self.conv_input_entry.pack(side="left", padx=(0, 10))
+        ctk.CTkButton(sel_row, text=self.i18n.t("btn_browse"), width=100, command=self._on_browse_conv_file).pack(side="left")
+
+        # Target Format & Preset
+        opt_row = ctk.CTkFrame(f, fg_color="transparent")
+        opt_row.pack(fill="x", pady=8)
+        ctk.CTkLabel(opt_row, text=self.i18n.t("target_format_label"), font=ctk.CTkFont(weight="bold")).pack(side="left", padx=(0, 10))
+        self.conv_fmt_combo = ctk.CTkComboBox(opt_row, values=["MP3", "WAV", "FLAC", "OGG", "Opus"], width=110)
+        self.conv_fmt_combo.set("MP3")
+        self.conv_fmt_combo.pack(side="left", padx=5)
+
+        self.conv_norm_check = ctk.CTkCheckBox(opt_row, text="Normalize Loudness")
+        self.conv_norm_check.pack(side="left", padx=20)
+
+        ctk.CTkButton(opt_row, text=self.i18n.t("btn_convert"), fg_color="#00897b", hover_color="#00695c", width=140, command=self._on_execute_conversion).pack(side="right")
+
+        # Result box
+        self.conv_status_box = ctk.CTkTextbox(f, height=280)
+        self.conv_status_box.pack(expand=True, fill="both", pady=15)
+
+    def _render_diagnostic_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.pack(fill="x", pady=(0, 15))
+        ctk.CTkLabel(hdr, text=self.i18n.t("nav_dev_hwtest"), font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkButton(hdr, text="?", width=28, height=28, command=lambda: self._show_help_dialog("diagnostic_test")).pack(side="right")
+
+        top_bar = ctk.CTkFrame(f, fg_color="transparent")
+        top_bar.pack(fill="x", pady=8)
+        ctk.CTkButton(top_bar, text=self.i18n.t("btn_run_tests"), width=160, command=self._on_run_diagnostics).pack(side="left")
+
+        self.diag_box = ctk.CTkTextbox(f, height=450)
+        self.diag_box.pack(expand=True, fill="both", pady=10)
+        self._on_run_diagnostics()
+
+    def _render_browser_device_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.pack(fill="x", pady=(0, 15))
+        ctk.CTkLabel(hdr, text=self.i18n.t("nav_dev_browser"), font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkButton(hdr, text="?", width=28, height=28, command=lambda: self._show_help_dialog("browser_companion")).pack(side="right")
+
+        ext_card = ctk.CTkFrame(f, fg_color="#222222", corner_radius=8)
+        ext_card.pack(fill="x", pady=10, padx=5)
+
+        ctk.CTkLabel(ext_card, text="Companion Extension Setup", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=15, pady=(12, 4))
+        ctk.CTkLabel(ext_card, text="Status: Ready on loopback interface (127.0.0.1)", text_color="#4db6ac").pack(anchor="w", padx=15, pady=2)
+        ctk.CTkLabel(ext_card, text="Installation Path: " + str(Path(__file__).resolve().parent.parent.parent / "browser_extension"), font=ctk.CTkFont(size=11), text_color="#90a4ae").pack(anchor="w", padx=15, pady=(2, 12))
+
+    def _render_analysis_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        ctk.CTkLabel(f, text=self.i18n.t("nav_ana_audio"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 15))
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=5)
+        self.ana_file_entry = ctk.CTkEntry(row, width=450, placeholder_text="Select audio file...")
+        self.ana_file_entry.pack(side="left", padx=(0, 10))
+        ctk.CTkButton(row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_ana_file).pack(side="left")
+        ctk.CTkButton(row, text=self.i18n.t("btn_analyze"), width=120, command=self._on_run_analysis).pack(side="left", padx=10)
+
+        self.ana_box = ctk.CTkTextbox(f, height=350)
+        self.ana_box.pack(expand=True, fill="both", pady=15)
+
+    def _render_midi_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        ctk.CTkLabel(f, text=self.i18n.t("nav_ana_midi"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 15))
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=5)
+        self.midi_input_entry = ctk.CTkEntry(row, width=450, placeholder_text="Audio file to transcribe...")
+        self.midi_input_entry.pack(side="left", padx=(0, 10))
+        ctk.CTkButton(row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_midi_file).pack(side="left")
+        ctk.CTkButton(row, text=self.i18n.t("btn_transcribe"), width=140, command=self._on_run_transcribe).pack(side="left", padx=10)
+
+        self.midi_box = ctk.CTkTextbox(f, height=350)
+        self.midi_box.pack(expand=True, fill="both", pady=15)
+
+    def _render_render_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        ctk.CTkLabel(f, text=self.i18n.t("nav_ana_render"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 15))
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=5)
+        self.ren_midi_entry = ctk.CTkEntry(row, width=450, placeholder_text="Select .mid file...")
+        self.ren_midi_entry.pack(side="left", padx=(0, 10))
+        ctk.CTkButton(row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_render_file).pack(side="left")
+        ctk.CTkButton(row, text=self.i18n.t("btn_render_midi"), width=140, command=self._on_run_render).pack(side="left", padx=10)
+
+        self.ren_box = ctk.CTkTextbox(f, height=350)
+        self.ren_box.pack(expand=True, fill="both", pady=15)
+
+    def _render_library_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        top_row = ctk.CTkFrame(f, fg_color="transparent")
+        top_row.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(top_row, text=self.i18n.t("nav_lib_recordings"), font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkButton(top_row, text=self.i18n.t("btn_open_folder"), width=130, command=self._on_open_output_dir).pack(side="right")
+
+        self.lib_box = ctk.CTkTextbox(f, height=450)
+        self.lib_box.pack(expand=True, fill="both", pady=10)
+        self._refresh_library_list()
+
+    def _render_settings_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        ctk.CTkLabel(f, text=self.i18n.t("nav_settings"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 15))
+
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=8)
+        ctk.CTkLabel(row, text=self.i18n.t("output_dir_label"), width=140, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        self.set_dir_entry = ctk.CTkEntry(row, width=420)
+        self.set_dir_entry.insert(0, self.cfg.output_dir)
+        self.set_dir_entry.pack(side="left", padx=10)
+        ctk.CTkButton(row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_settings_dir).pack(side="left")
+
+        ctk.CTkButton(f, text=self.i18n.t("btn_save_settings"), width=150, command=self._on_save_settings_clicked).pack(anchor="w", pady=20)
+
+    def _render_about_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+
+        ctk.CTkLabel(f, text="er-audio-tool v1.0.0", font=ctk.CTkFont(size=20, weight="bold"), text_color="#4db6ac").pack(anchor="w", pady=(0, 10))
+        abt = (
+            "er-audio-tool was originally derived from skillerious/Loopback-Recorder by Robin Doak.\n"
+            "The original project is available at https://github.com/skillerious/Loopback-Recorder and is used under the MIT License.\n"
+            "er-audio-tool is an independently maintained project and is not affiliated with or endorsed by the original author.\n\n"
+            "Maintainer: Eidolf\n"
+            "License: MIT License\n"
+            "Privacy: 100% Local-First. Zero remote audio telemetry."
+        )
+        box = ctk.CTkTextbox(f, height=300)
+        box.pack(expand=True, fill="both", pady=10)
+        box.insert("end", abt)
+
+    def _render_help_view(self):
+        f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        f.pack(expand=True, fill="both", padx=25, pady=20)
+        ctk.CTkLabel(f, text=self.i18n.t("nav_help_topics"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 15))
+        box = ctk.CTkTextbox(f, height=450)
+        box.pack(expand=True, fill="both", pady=10)
+        topic = get_help_topic("system_audio")
+        if topic:
+            txt = topic.content_de if self.i18n.current_lang == "de" else topic.content_en
+            box.insert("end", f"{topic.title_de if self.i18n.current_lang == 'de' else topic.title_en}\n\n{txt}\n")
+
+    # ------------------ EVENT HANDLERS & HELPERS ------------------ #
+
+    def _show_help_dialog(self, topic_id: str):
+        topic = get_help_topic(topic_id)
+        if not topic:
+            return
+        title = topic.title_de if self.i18n.current_lang == "de" else topic.title_en
+        content = topic.content_de if self.i18n.current_lang == "de" else topic.content_en
+
+        top = ctk.CTkToplevel(self)
+        top.title(title)
+        top.geometry("520x360")
+        top.transient(self)
+        txt = ctk.CTkTextbox(top)
+        txt.pack(expand=True, fill="both", padx=15, pady=15)
+        txt.insert("end", content)
+
+    def _on_browse_rec_dir(self):
+        p = filedialog.askdirectory(initialdir=self.cfg.output_dir)
+        if p:
+            self.rec_dir_entry.delete(0, "end")
+            self.rec_dir_entry.insert(0, p)
+            self.cfg.output_dir = p
+            self.cm.save(self.cfg)
+
+    def _on_browse_settings_dir(self):
+        p = filedialog.askdirectory(initialdir=self.cfg.output_dir)
+        if p:
+            self.set_dir_entry.delete(0, "end")
+            self.set_dir_entry.insert(0, p)
+
+    def _on_save_settings_clicked(self):
+        self.cfg.output_dir = self.set_dir_entry.get().strip()
+        self.cm.save(self.cfg)
+        messagebox.showinfo(self.i18n.t("app_title"), self.i18n.t("btn_save_settings") + " - OK")
+
+    def _on_open_output_dir(self):
+        p = Path(self.cfg.output_dir)
+        if not p.exists():
+            p.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            os.startfile(p)
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(p)])
+        else:
+            subprocess.run(["xdg-open", str(p)])
+
+    def _on_browse_conv_file(self):
+        f = filedialog.askopenfilename(filetypes=[("Audio Files", "*.m4a *.mp4 *.aac *.mp3 *.wav *.flac *.ogg *.opus *.aiff"), ("All Files", "*.*")])
+        if f:
+            self.conv_input_entry.delete(0, "end")
+            self.conv_input_entry.insert(0, f)
+
+    def _on_browse_ana_file(self):
+        f = filedialog.askopenfilename(filetypes=[("Audio Files", "*.mp3 *.wav *.flac *.m4a"), ("All Files", "*.*")])
+        if f:
+            self.ana_file_entry.delete(0, "end")
+            self.ana_file_entry.insert(0, f)
+
+    def _on_browse_midi_file(self):
+        f = filedialog.askopenfilename(filetypes=[("Audio Files", "*.mp3 *.wav *.flac"), ("All Files", "*.*")])
+        if f:
+            self.midi_input_entry.delete(0, "end")
+            self.midi_input_entry.insert(0, f)
+
+    def _on_browse_render_file(self):
+        f = filedialog.askopenfilename(filetypes=[("MIDI Files", "*.mid *.midi"), ("All Files", "*.*")])
+        if f:
+            self.ren_midi_entry.delete(0, "end")
+            self.ren_midi_entry.insert(0, f)
+
+    def _on_record_clicked(self):
         curr = self.state_machine.current_state
         if curr == AppState.IDLE:
-            # Start recording
             self.state_machine.transition_to(AppState.PREPARING)
-            self.state_machine.transition_to(AppState.RECORDING)
-            self.status_label.configure(text=self.i18n.t("status_recording"), text_color="#ef5350")
-            self.btn_record.configure(text="■ " + self.i18n.t("stop"), fg_color="#37474f")
             self._recording_data.clear()
             self._record_start_time = time.time()
+            self._elapsed_paused_time = 0.0
 
-            # Select device
             selected_name = self.source_combo.get()
             dev = next((d for d in self.devices if d.name == selected_name), self.devices[0] if self.devices else None)
-            if dev:
+            if not dev:
+                messagebox.showerror(self.i18n.t("error"), "No audio device selected.")
+                self.state_machine.transition_to(AppState.FAILED)
+                self.state_machine.transition_to(AppState.IDLE)
+                return
+
+            try:
                 self._active_backend.start_capture(
                     dev,
                     self.cfg.sample_rate,
                     self.cfg.channels,
                     self._on_audio_data_received
                 )
-        elif curr == AppState.RECORDING:
-            # Stop recording
+                self.state_machine.transition_to(AppState.RECORDING)
+                self.status_label.configure(text=self.i18n.t("recording"), text_color="#ef5350")
+                self.btn_rec.configure(state="disabled")
+                self.btn_pause.configure(state="normal", text="❚❚ " + self.i18n.t("btn_pause"))
+                self.btn_stop.configure(state="normal")
+            except Exception as ex:
+                self.state_machine.transition_to(AppState.FAILED)
+                self.state_machine.transition_to(AppState.IDLE)
+                messagebox.showerror(self.i18n.t("error"), f"Capture initialization failed: {ex}")
+
+    def _on_pause_clicked(self):
+        curr = self.state_machine.current_state
+        if curr == AppState.RECORDING:
+            self.state_machine.transition_to(AppState.PAUSED)
+            self._pause_start_time = time.time()
+            self.status_label.configure(text=self.i18n.t("paused"), text_color="#ffb74d")
+            self.btn_pause.configure(text="▶ " + self.i18n.t("btn_resume"))
+        elif curr == AppState.PAUSED:
+            self.state_machine.transition_to(AppState.RECORDING)
+            self._elapsed_paused_time += (time.time() - self._pause_start_time)
+            self.status_label.configure(text=self.i18n.t("recording"), text_color="#ef5350")
+            self.btn_pause.configure(text="❚❚ " + self.i18n.t("btn_pause"))
+
+    def _on_stop_clicked(self):
+        curr = self.state_machine.current_state
+        if curr in (AppState.RECORDING, AppState.PAUSED):
             self.state_machine.transition_to(AppState.STOPPING)
-            self.status_label.configure(text=self.i18n.t("status_encoding"), text_color="#ffb74d")
-            self._active_backend.stop_capture()
+            self.status_label.configure(text=self.i18n.t("encoding"), text_color="#ffb74d")
+            try:
+                self._active_backend.stop_capture()
+            except Exception:
+                pass
 
             self.state_machine.transition_to(AppState.ENCODING)
+            out_fmt = self.fmt_combo.get().lower()
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            target_path = Path(self.cfg.output_dir) / f"Recording_{ts}.{out_fmt}"
+
             if self._recording_data:
                 combined = np.concatenate(self._recording_data, axis=0)
-                out_fmt = self.fmt_combo.get().lower()
-                ts = time.strftime("%Y%m%d_%H%M%S")
-                target = Path(self.cfg.output_dir) / f"Recording_{ts}.{out_fmt}"
-                AudioEncoder.save_audio(combined, self.cfg.sample_rate, target, format_type=out_fmt)
+                AudioEncoder.save_audio(combined, self.cfg.sample_rate, target_path, format_type=out_fmt)
+                messagebox.showinfo(self.i18n.t("app_title"), f"Saved: {target_path}")
+            else:
+                # If zero frames received, write clean diagnostic silent file so user has an output and warning
+                zero_audio = np.zeros((self.cfg.sample_rate * 2, self.cfg.channels), dtype=np.float32)
+                AudioEncoder.save_audio(zero_audio, self.cfg.sample_rate, target_path, format_type=out_fmt)
+                messagebox.showwarning(self.i18n.t("error"), "No audio frames were received from the endpoint. Saved silent diagnostic file.")
 
             self.state_machine.transition_to(AppState.COMPLETED)
             self.state_machine.transition_to(AppState.IDLE)
-            self.status_label.configure(text=self.i18n.t("status_idle"), text_color="#b0bec5")
-            self.btn_record.configure(text="● " + self.i18n.t("record"), fg_color="#e53935")
+            self.status_label.configure(text=self.i18n.t("ready"), text_color="#b0bec5")
+            self.btn_rec.configure(state="normal")
+            self.btn_pause.configure(state="disabled")
+            self.btn_stop.configure(state="disabled")
             self._refresh_library_list()
 
     def _on_audio_data_received(self, data: np.ndarray):
@@ -393,22 +598,99 @@ class ErAudioApp(ctk.CTk):
             self._recording_data.append(data.copy())
             self.audio_buffer.push(data)
 
+    def _on_execute_conversion(self):
+        in_p = self.conv_input_entry.get().strip()
+        if not in_p or not Path(in_p).exists():
+            messagebox.showerror(self.i18n.t("error"), "Please select an existing audio file.")
+            return
+
+        self.conv_status_box.delete("1.0", "end")
+        self.conv_status_box.insert("end", f"Starting conversion of: {in_p}...\n")
+        job = ConversionJob(
+            input_file=Path(in_p),
+            output_format=self.conv_fmt_combo.get().lower(),
+            normalize=bool(self.conv_norm_check.get()),
+            output_dir=Path(self.cfg.output_dir),
+        )
+        res = AudioConverter.convert_file(job)
+        if res.success:
+            self.conv_status_box.insert("end", f"✓ Conversion Successful!\nOutput: {res.output_path}\nDuration: {res.duration_seconds:.2f}s\n")
+            self._refresh_library_list()
+        else:
+            self.conv_status_box.insert("end", f"✗ Conversion Failed: {res.error_message}\n")
+
+    def _on_run_diagnostics(self):
+        self.diag_box.delete("1.0", "end")
+        self.diag_box.insert("end", "Running Hardware & Software Diagnostics...\n\n")
+        items = DiagnosticRunner.run_all_tests(self.cfg.output_dir)
+        for it in items:
+            symbol = "✓" if it.status == "PASSED" else ("⚠" if it.status == "WARNING" else "✗")
+            self.diag_box.insert("end", f"[{symbol} {it.status}] {it.category} > {it.name}\n  Details: {it.details}\n")
+            if it.recommendation:
+                self.diag_box.insert("end", f"  Action: {it.recommendation}\n")
+            self.diag_box.insert("end", "\n")
+
+    def _on_run_analysis(self):
+        p = self.ana_file_entry.get().strip()
+        if not p or not Path(p).exists():
+            return
+        self.ana_box.delete("1.0", "end")
+        rep = AudioAnalyzer.analyze_file(p)
+        self.ana_box.insert("end", f"File: {rep.file_path}\nDuration: {rep.duration_seconds}s | Sample Rate: {rep.sample_rate} Hz | Channels: {rep.channels}\nPeak: {rep.peak_db} dBFS | RMS: {rep.rms_db} dBFS\nEstimated Tempo: {rep.estimated_tempo_bpm} BPM | Key: {rep.estimated_key}\n")
+
+    def _on_run_transcribe(self):
+        p = self.midi_input_entry.get().strip()
+        if not p or not Path(p).exists():
+            return
+        self.midi_box.delete("1.0", "end")
+        self.midi_box.insert("end", "Transcribing audio to MIDI...\n")
+        notes = AudioToMidiTranscriber.transcribe(p)
+        out = Path(p).with_suffix(".mid")
+        MidiExporter.export_midi(notes, out)
+        self.midi_box.insert("end", f"Exported {len(notes)} note events to: {out}\n")
+        self._refresh_library_list()
+
+    def _on_run_render(self):
+        p = self.ren_midi_entry.get().strip()
+        if not p or not Path(p).exists():
+            return
+        self.ren_box.delete("1.0", "end")
+        out = Path(p).with_suffix(".rendered.mp3")
+        notes = [NoteEvent(pitch=60 + i, start_time=i * 0.25, duration=0.3) for i in range(8)]
+        MidiRenderer.render_notes_to_audio(notes, out)
+        self.ren_box.insert("end", f"Rendered MIDI to MP3: {out}\n")
+        self._refresh_library_list()
+
+    def _refresh_library_list(self):
+        if not hasattr(self, "lib_box"):
+            return
+        self.lib_box.delete("1.0", "end")
+        p = Path(self.cfg.output_dir)
+        if p.exists():
+            for f in sorted(p.glob("*.*"), key=lambda x: x.stat().st_mtime, reverse=True):
+                if f.suffix.lower() in (".wav", ".flac", ".mp3", ".ogg", ".opus", ".m4a", ".mid"):
+                    sz = f.stat().st_size / (1024 * 1024)
+                    self.lib_box.insert("end", f"{f.name}  ({sz:.2f} MB) - {f}\n")
+
     def _update_loop(self):
-        # Update timer & meters
-        if self.state_machine.current_state == AppState.RECORDING:
-            elapsed = int(time.time() - self._record_start_time)
+        curr = self.state_machine.current_state
+        if curr == AppState.RECORDING:
+            elapsed = int(time.time() - self._record_start_time - self._elapsed_paused_time)
             h = elapsed // 3600
             m = (elapsed % 3600) // 60
             s = elapsed % 60
-            self.timer_label.configure(text=f"{h:02d}:{m:02d}:{s:02d}")
+            if hasattr(self, "timer_disp"):
+                self.timer_disp.configure(text=f"{h:02d}:{m:02d}:{s:02d}")
 
-        peak_db, rms_db, is_clip = self.audio_buffer.get_levels()
-        p_val = max(0.0, (peak_db + 60.0) / 60.0) if peak_db > -60.0 else 0.0
-        self.peak_progress.set(min(1.0, p_val))
-        self.meter_label.configure(text=f"Levels: Peak {peak_db:.1f} dB | RMS {rms_db:.1f} dB")
-        if is_clip:
-            self.clip_warn.configure(text=self.i18n.t("clipping_warning"))
-        else:
-            self.clip_warn.configure(text="")
+        if hasattr(self, "meter_l"):
+            peak_db, rms_db, is_clip = self.audio_buffer.get_levels()
+            val = max(0.0, (peak_db + 60.0) / 60.0) if peak_db > -60.0 else 0.0
+            self.meter_l.set(min(1.0, val))
+            self.meter_r.set(min(1.0, val))
+            self.meter_text.configure(text=f"Levels: L {peak_db:.1f} dB | R {peak_db:.1f} dB | RMS {rms_db:.1f} dB")
+            if is_clip:
+                self.clip_warn.configure(text=self.i18n.t("clipping_detected"))
+            else:
+                self.clip_warn.configure(text="")
 
         self.after(50, self._update_loop)
