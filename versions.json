@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "generated": "2025-10-18T11:10:36Z",
+  "contact": "Skillerious — Robin Doak",
+  "apps": [
+    {
+      "id": "loopback-recorder",
+      "name": "Loopback-Recorder",
+      "tracks": {
+        "stable": {
+          "version": "",
+          "code": 0,
+          "date": "",
+          "url": "https://github.com/skillerious/Loopback-Recorder/releases",
+          "download": "https://github.com/skillerious/Loopback-Recorder/releases/latest",
+          "notes": "Record Windows system audio."
+        }
+      },
+      "history": []
+    }
+  ]
+}

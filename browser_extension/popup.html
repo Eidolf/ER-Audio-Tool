@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>er-audio-tool Tab Capture</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 16px;
+      width: 280px;
+      background: #1e1e1e;
+      color: #e0e0e0;
+    }
+    h3 { margin-top: 0; font-size: 16px; color: #4db6ac; }
+    p { font-size: 12px; color: #aaa; line-height: 1.4; }
+    .input-field {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      background: #2b2b2b;
+      border: 1px solid #444;
+      color: #fff;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      font-size: 11px;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-start { background: #26a69a; color: #fff; }
+    .btn-stop { background: #e53935; color: #fff; display: none; }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      margin-bottom: 8px;
+    }
+    .badge-idle { background: #444; color: #bbb; }
+    .badge-rec { background: #c62828; color: #fff; }
+  </style>
+</head>
+<body>
+  <h3>er-audio-tool Companion</h3>
+  <div id="statusBadge" class="badge badge-idle">Status: Idle</div>
+  <p>Capture audio from the active tab and stream securely to your local er-audio-tool desktop application.</p>
+  
+  <label for="tokenInput" style="font-size: 11px; font-weight: bold;">Session Auth Token:</label>
+  <input type="password" id="tokenInput" class="input-field" placeholder="Paste token from desktop app" />
+
+  <button id="btnToggle" class="btn-start">Record Active Tab</button>
+
+  <p style="margin-top: 12px; font-size: 10px; color: #777;">
+    🔒 Protected audio and DRM-restricted streams cannot be captured. Requires explicit user consent.
+  </p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

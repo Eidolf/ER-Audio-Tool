@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "er-audio-tool"
+version = "1.0.0"
+description = "Professional, privacy-conscious desktop audio recorder, analyzer, audio-to-MIDI transcriber, and synthesizer."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Eidolf", email = "andreas@eidolf.de" }
+]
+keywords = ["audio", "recording", "wasapi", "pipewire", "midi", "transcription", "synthesizer"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Capture/Recording",
+    "Topic :: Multimedia :: Sound/Audio :: Conversion",
+]
+dependencies = [
+    "customtkinter>=5.2.0",
+    "numpy>=1.22.0",
+    "soundfile>=0.12.0",
+    "sounddevice>=0.4.6",
+    "pillow>=9.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+full = [
+    "matplotlib>=3.5.0",
+    "mutagen>=1.45.0",
+    "scipy>=1.8.0",
+]
+
+[project.scripts]
+er-audio-tool = "er_audio_tool.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["er_audio_tool*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
