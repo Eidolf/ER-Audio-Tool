@@ -28,6 +28,7 @@ from er_audio_tool.converter.converter import AudioConverter, ConversionJob
 from er_audio_tool.diagnostics.runner import DiagnosticRunner
 from er_audio_tool.help import get_help_topic
 from er_audio_tool.audio.codecs import get_codec_manager, CODEC_SCOPES
+from er_audio_tool.browser.server import BrowserServer
 
 
 class ErAudioApp(ctk.CTk):
