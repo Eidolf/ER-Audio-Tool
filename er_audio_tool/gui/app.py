@@ -1,6 +1,7 @@
 """Professional CustomTkinter GUI with hierarchical navigation, submenus, dynamic i18n, and full workflows."""
 from __future__ import annotations
 import os
+import shutil
 import subprocess
 import sys
 import threading
