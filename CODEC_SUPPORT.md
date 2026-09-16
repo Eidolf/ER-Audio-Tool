@@ -91,8 +91,8 @@ M4A is a container format that can hold different codecs:
 
 | Feature | Support | Details |
 |---------|---------|---------|
-| **Decoding** | ⚠️ Requires Testing | Should work with Full FFmpeg |
-| **Encoding** | ⚠️ Requires Testing | Should work with Full FFmpeg |
+| **Decoding** | ✅ Yes | Verified with FFmpeg |
+| **Encoding** | ✅ Yes | Via FFmpeg ALAC encoder |
 | **Quality** | Lossless | Bit-perfect, 40-60% of WAV size |
 | **Channels** | Up to 8 channels | Stereo most common |
 
@@ -100,9 +100,9 @@ M4A is a container format that can hold different codecs:
 - Apple's lossless format
 - Smaller than WAV, same quality
 - Native macOS/iOS format
-- **Requires "Full" codec pack**
+- **Requires FFmpeg**
 
-**Status:** ⚠️ **REQUIRES VERIFICATION** - ALAC support claimed but not tested with real ALAC files
+**Status:** ✅ **Verified** - ALAC decoding, conversion (to MP3, WAV, FLAC), and analysis verified with real ALAC files.
 
 ### Opus
 
@@ -224,7 +224,7 @@ When recording system audio, microphone, or browser tabs, you can output to:
 
 ```
 M4A (AAC) → MP3 320k    ✅ Supported
-M4A (ALAC) → FLAC       ⚠️ Requires verification
+M4A (ALAC) → FLAC       ✅ Verified
 MP3 → WAV              ✅ Supported (but lossy source)
 WAV → MP3              ✅ Supported
 FLAC → MP3             ✅ Supported
@@ -292,9 +292,8 @@ Sample rate and channel count can be changed during conversion:
 ### Format-Specific Limitations
 
 **M4A ALAC:**
-- ⚠️ Support claimed but **not verified with real ALAC files**
-- Requires Full FFmpeg codec pack
-- If ALAC conversion fails, report as bug
+- ✅ Verified with real ALAC files (decoding, analysis, conversion to MP3/WAV/FLAC)
+- Requires FFmpeg for decoding and encoding
 
 **WMA:**
 - Read-only (decoding only)
@@ -331,7 +330,7 @@ Sample rate and channel count can be changed during conversion:
 | MP3 | ✅ Tested | ✅ Tested | ✅ Tested | Verified |
 | OGG Vorbis | ✅ Tested | ✅ Tested | ✅ Tested | Verified |
 | M4A AAC | ⚠️ Basic | ✅ Tested | ✅ Tested | Verified |
-| M4A ALAC | ❌ Not tested | ⚠️ Claimed | ⚠️ Unknown | **Needs verification** |
+| M4A ALAC | ⚠️ Direct PCM | ✅ Tested | ✅ Tested | Verified |
 | Opus | ⚠️ Basic | ⚠️ Basic | ⚠️ Basic | Functional |
 | AIFF | ❌ Not tested | ⚠️ Claimed | ⚠️ Unknown | Needs verification |
 
