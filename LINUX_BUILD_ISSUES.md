@@ -4,7 +4,7 @@
 **Plattform:** Linux 6.8.0-139-generic (x86_64, Ubuntu 24.04 LTS Base)  
 **Binary:** `dist/er-audio-tool`  
 **Tarball:** `dist/er-audio-tool-linux-x86_64.tar.gz` (80 MB)  
-**Version:** 1.3.7  
+**Version:** 0.4.0  
 
 ---
 
@@ -13,7 +13,7 @@
 | Test | Status | Notizen |
 |------|--------|---------|
 | Application Build (PyInstaller) | ✅ PASSED | Gebaut ohne Fehler, dynamische Submodule via `collect_submodules` gebündelt |
-| CLI `--version` | ✅ PASSED | Gibt korrekt `er-audio-tool 1.3.7` aus |
+| CLI `--version` | ✅ PASSED | Gibt korrekt `er-audio-tool 0.4.0` aus |
 | CLI `--diagnostics` | ✅ PASSED | Alle System- & Codec-Checks bestanden; FFmpeg erfolgreich erkannt |
 | Direct Conversion Pipeline | ✅ PASSED | WAV, FLAC, MP3, OGG, Opus, M4A (AAC & ALAC) verifiziert |
 | Automated Test Suite | ✅ PASSED | 38 von 39 Tests bestanden (1 headless Tkinter übersprungen) |

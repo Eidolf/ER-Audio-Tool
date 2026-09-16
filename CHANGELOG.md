@@ -5,26 +5,20 @@ All notable changes to er-audio-tool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-09-17
 
 ### Added
-- Comprehensive independent audit and verification framework
-- Complete test suite with 33 automated tests covering critical defects
-- Detailed audit report documenting architecture, security, and feature status
+- Complete architecture migration to modular `er_audio_tool` package
+- Portable standalone build verification for Windows & Linux
+- Command line arguments (`--version`, `--diagnostics`) in root launcher and binary
+- Standard MIDI File (SMF) Format 1 multi-track export
+- Real ALAC (Apple Lossless) decoding, conversion, and analysis verification
+- Automated pause/resume test suite
+- Comprehensive documentation suite and user guides
 
-### Fixed
-- Historical P0 defects addressed:
-  - Removed invalid WasapiSettings(loopback=True) usage
-  - Fixed WASAPI channel negotiation with proper endpoint detection
-  - Eliminated microphone fallback through strict source isolation
-  - Implemented output validation with 5 classification levels
-  - Fixed level meter to consume same frame source as writer
-
-### Security
-- Loopback-only browser extension server (127.0.0.1)
-- High-entropy 192-bit authentication tokens
-- Constant-time token comparison
-- No telemetry or cloud uploads
+### Changed
+- Reset versioning baseline to 0.4.0 (pre-release alpha consolidation)
+- Retired legacy monolithic scripts (`main.py`, `settings.py`, `about.py`) into `legacy/`
 
 ## [1.3.7] - 2026-09-16
 

@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 # Fallback default if no Git or package metadata is present
-FALLBACK_VERSION = "1.4.0"
+FALLBACK_VERSION = "0.4.0"
 
 
 def get_version() -> str:

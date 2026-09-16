@@ -3,7 +3,7 @@
 This document specifies the exact audio codecs and formats supported by er-audio-tool.
 
 **Last Updated:** 2026-09-17  
-**Version:** 1.3.7
+**Version:** 0.4.0
 
 ---
 
