@@ -23,6 +23,25 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   btnRefreshTabs.addEventListener("click", refreshTabsList);
 
+  // Send immediate heartbeat if token present and periodically while open
+  if (stored.sessionToken) {
+    fetch("http://127.0.0.1:58291/api/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Session-Token": stored.sessionToken },
+      body: JSON.stringify({ token: stored.sessionToken })
+    }).catch(() => {});
+  }
+  setInterval(() => {
+    const curTok = tokenInput.value.trim();
+    if (curTok) {
+      fetch("http://127.0.0.1:58291/api/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Session-Token": curTok },
+        body: JSON.stringify({ token: curTok })
+      }).catch(() => {});
+    }
+  }, 15000);
+
   // Check current recording state
   chrome.runtime.sendMessage({ action: "GET_STATE" }, (response) => {
     if (response && response.isRecording) {

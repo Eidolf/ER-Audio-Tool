@@ -170,3 +170,70 @@ async def test_browser_server_audio_chunk_endpoint():
     assert len(received_chunks) == 1
     assert received_chunks[0][0].shape == (1024, 2)
     assert received_chunks[0][1] == descriptor.capture_session_id
+
+
+def test_windows_system_output_capture_ffmpeg_fallback(monkeypatch):
+    """Verify that WindowsSystemOutputCapture seamlessly falls back to FFmpeg WASAPI loopback if sounddevice fails."""
+    import types
+    # Provide mock sounddevice module in sys.modules
+    mock_sd = types.ModuleType("sounddevice")
+    mock_sd.query_hostapis = lambda: [{"name": "Windows WASAPI"}]
+    mock_sd.query_devices = lambda dev_id=None: {"max_output_channels": 2, "max_input_channels": 0, "default_samplerate": 48000, "name": "Realtek Speakers"} if dev_id is not None else [{"name": "Speakers", "hostapi": 0, "max_output_channels": 2}]
+    mock_sd.default = types.SimpleNamespace(device=(0, 0))
+    def mock_input_stream(*args, **kwargs):
+        raise RuntimeError("Error opening InputStream: Invalid number of channels [PaErrorCode -9998]")
+    mock_sd.InputStream = mock_input_stream
+    mock_sd.WasapiSettings = lambda **kwargs: types.SimpleNamespace(**kwargs)
+    monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    from er_audio_tool.audio.backends.windows_wasapi import WindowsSystemOutputCapture
+
+    backend = WindowsSystemOutputCapture()
+
+    # Mock CodecManager to supply a dummy ffmpeg path
+    from er_audio_tool.audio import codecs
+    mgr = codecs.get_codec_manager()
+    monkeypatch.setattr(mgr, "get_active_ffmpeg", lambda: "/mock/bin/ffmpeg.exe")
+
+    # Mock subprocess.Popen for FFmpeg
+    import io
+    import subprocess
+    class MockFFmpegProcess:
+        def __init__(self):
+            # Generate dummy float32 data
+            dummy_pcm = (np.ones((2048, 2), dtype=np.float32) * 0.25).tobytes()
+            self.stdout = io.BytesIO(dummy_pcm)
+        def poll(self):
+            return None
+        def terminate(self):
+            pass
+        def wait(self, timeout=None):
+            pass
+        def kill(self):
+            pass
+
+    mock_proc = MockFFmpegProcess()
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: mock_proc)
+
+    received_frames = []
+    dev = AudioDeviceInfo(
+        id=0,
+        name="[System Output] Realtek Speakers",
+        channels=2,
+        sample_rate=48000,
+        is_default=True,
+        is_loopback=True,
+        backend_type=BackendType.WASAPI,
+        capability=DeviceCapability.OUTPUT_LOOPBACK,
+    )
+
+    backend.start_capture(dev, 48000, 2, lambda data: received_frames.append(data))
+    import time
+    time.sleep(0.05)
+    backend.stop_capture()
+
+    assert backend._negotiated_format["strategy"] == "Native WASAPI Loopback Engine (FFmpeg)"
+    assert len(received_frames) > 0
+    assert received_frames[0].shape[1] == 2
+

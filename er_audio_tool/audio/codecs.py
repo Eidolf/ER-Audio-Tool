@@ -96,14 +96,22 @@ class CodecManager:
         return self.find_local_ffmpeg_path() is not None
 
     def find_local_ffmpeg_path(self) -> Optional[Path]:
-        if not self.codecs_dir.exists():
-            return None
         binary_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
-        for root, _, files in os.walk(self.codecs_dir):
-            if binary_name in files:
-                p = Path(root) / binary_name
-                if os.access(p, os.X_OK) or sys.platform == "win32":
-                    return p
+        # Search candidate directories: codecs_dir, app_root/temp_codecs, app_root/bin, app_root
+        candidate_dirs = [
+            self.codecs_dir,
+            self.app_root / "temp_codecs",
+            self.app_root / "bin",
+            self.app_root,
+        ]
+        for cdir in candidate_dirs:
+            if not cdir.exists():
+                continue
+            for root, _, files in os.walk(cdir):
+                if binary_name in files:
+                    p = Path(root) / binary_name
+                    if os.access(p, os.X_OK) or sys.platform == "win32":
+                        return p
         return None
 
     def get_active_ffmpeg(self) -> Optional[str]:

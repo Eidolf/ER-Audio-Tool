@@ -366,7 +366,7 @@ class DiagnosticRunner:
                 )
 
             # Stage 5: Heartbeat freshness
-            if snap.last_heartbeat_age_seconds < 120.0:
+            if snap.last_heartbeat_age_seconds < 300.0:
                 test_results.append(
                     DiagnosticItem(
                         category="Browser Recording Readiness",

@@ -226,6 +226,7 @@ class BrowserServer:
                     extension_version=ext_ver,
                     browser_family=browser_fam,
                 )
+                self.registry.record_heartbeat()
                 if self.on_status_change:
                     self.on_status_change("Extension Verified & Connected")
 

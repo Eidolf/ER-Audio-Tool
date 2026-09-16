@@ -6,6 +6,7 @@ Implements clean, independent adapters following OBS-like WASAPI architecture:
 3. WindowsMicrophoneCapture (Explicit physical microphone input only)
 """
 from __future__ import annotations
+import subprocess
 import sys
 import threading
 from typing import Optional
@@ -20,6 +21,7 @@ from er_audio_tool.audio.interfaces import (
     DeviceCapability,
     AudioDataCallback,
 )
+from er_audio_tool.audio.codecs import get_codec_manager
 
 
 class WindowsSystemOutputCapture(AudioCaptureBackend):
@@ -32,6 +34,8 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
     def __init__(self):
         self._running = False
         self._stream = None
+        self._ffmpeg_process: Optional[subprocess.Popen] = None
+        self._reader_thread: Optional[threading.Thread] = None
         self._negotiated_format: dict = {}
 
     def get_backend_type(self) -> BackendType:
@@ -212,6 +216,73 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
                 last_error = ex
 
         if not stream_opened:
+            # Automatic OBS-equivalent Fallback:
+            # If sounddevice (PortAudio) cannot open the render endpoint directly (e.g. -9998 Invalid number of channels),
+            # use the locally bundled/portable FFmpeg which supports native Windows WASAPI loopback out of the box.
+            ffmpeg_path = get_codec_manager().get_active_ffmpeg()
+            if ffmpeg_path:
+                try:
+                    # Clean device name without '[System Output] ' prefix for FFmpeg if needed
+                    clean_name = device.name
+                    if clean_name.startswith("[System Output] "):
+                        clean_name = clean_name[len("[System Output] "):]
+
+                    # FFmpeg command for native Windows WASAPI loopback capture
+                    # Audio output format: 32-bit float Little-Endian raw PCM, stereo, target sample rate
+                    # ffmpeg -y -f wasapi -i audio="..." or -i default -vn -f f32le -ar 48000 -ac 2 -
+                    ffmpeg_cmd = [
+                        ffmpeg_path,
+                        "-y",
+                        "-f", "wasapi",
+                        "-i", "default",
+                        "-vn",
+                        "-f", "f32le",
+                        "-ar", str(target_sr),
+                        "-ac", str(channels),
+                        "-",
+                    ]
+                    # Start FFmpeg loopback capture process in background
+                    proc = subprocess.Popen(
+                        ffmpeg_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        bufsize=1024 * 64,
+                    )
+                    self._ffmpeg_process = proc
+                    stream_opened = True
+                    self._negotiated_format = {
+                        "device": device.name,
+                        "endpoint_id": target_device_id,
+                        "flow": "render",
+                        "loopback": True,
+                        "channels": channels,
+                        "sample_rate": target_sr,
+                        "strategy": "Native WASAPI Loopback Engine (FFmpeg)",
+                    }
+
+                    def _ffmpeg_reader():
+                        # Read float32 chunks (each sample = 4 bytes)
+                        bytes_per_sample = 4
+                        frames_per_chunk = 1024
+                        chunk_size = frames_per_chunk * channels * bytes_per_sample
+                        while self._running and proc.poll() is None and proc.stdout:
+                            raw_data = proc.stdout.read(chunk_size)
+                            if not raw_data:
+                                break
+                            count = len(raw_data) // (bytes_per_sample * channels)
+                            if count > 0:
+                                samples = np.frombuffer(raw_data[: count * channels * bytes_per_sample], dtype=np.float32)
+                                arr = samples.reshape(-1, channels)
+                                if callback:
+                                    callback(arr)
+
+                    self._reader_thread = threading.Thread(target=_ffmpeg_reader, daemon=True)
+                    self._reader_thread.start()
+                except Exception as ff_ex:
+                    stream_opened = False
+                    last_error = f"{last_error}; FFmpeg WASAPI loopback failed: {ff_ex}"
+
+        if not stream_opened:
             raise RuntimeError(
                 f"WASAPI system loopback stream initialization failed: {last_error}. "
                 f"(Device: '{device.name}' [ID: {device.id}], Target ID: {target_device_id}, "
@@ -227,6 +298,21 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
             except Exception:
                 pass
             self._stream = None
+
+        if self._ffmpeg_process:
+            try:
+                self._ffmpeg_process.terminate()
+                self._ffmpeg_process.wait(timeout=1.0)
+            except Exception:
+                try:
+                    self._ffmpeg_process.kill()
+                except Exception:
+                    pass
+            self._ffmpeg_process = None
+
+        if self._reader_thread and self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=1.0)
+            self._reader_thread = None
 
 
 class WindowsApplicationAudioCapture(AudioCaptureBackend):

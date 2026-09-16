@@ -289,8 +289,8 @@ class BrowserConnectionRegistry:
         if snap.state in (ConnectionState.CAPTURE_STARTING, ConnectionState.AUDIO_STREAM_ACTIVE):
             raise ReservationError("ALREADY_CAPTURING", "A browser tab capture session is already active.", "Stop the current recording before starting a new one.")
 
-        # 7. Heartbeat freshness check (within 120 seconds)
-        if snap.last_heartbeat_age_seconds > 120.0:
+        # 7. Heartbeat freshness check (within 300 seconds)
+        if snap.last_heartbeat_age_seconds > 300.0:
             raise ReservationError("HEARTBEAT_EXPIRED", "The browser extension heartbeat has timed out.", "Reopen the extension popup or click 'Recheck Readiness'.")
 
         # Reserve atomic capture session

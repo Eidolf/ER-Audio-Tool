@@ -3,7 +3,39 @@
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("er-audio-tool companion extension installed");
+  setupHeartbeatAlarm();
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  setupHeartbeatAlarm();
+});
+
+function setupHeartbeatAlarm() {
+  if (chrome.alarms) {
+    chrome.alarms.create("er_audio_heartbeat", { periodInMinutes: 0.5 });
+  }
+}
+
+if (chrome.alarms) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === "er_audio_heartbeat") {
+      performHeartbeat();
+    }
+  });
+}
+
+// Periodic interval fallback
+setInterval(() => {
+  performHeartbeat();
+}, 20000);
+
+async function performHeartbeat() {
+  chrome.storage.local.get(["sessionToken", "selectedTabId"], async (stored) => {
+    const token = stored.sessionToken;
+    if (!token) return;
+    await sendToDesktopServer("/api/heartbeat", { extension_id: "chrome-companion" }, token);
+  });
+}
 
 let isRecording = false;
 let activeTabInfo = null;
