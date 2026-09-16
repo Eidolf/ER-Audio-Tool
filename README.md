@@ -49,8 +49,10 @@ A privacy-conscious, local-first desktop audio suite for Windows and Linux. Reco
 
 ## Supported Platforms
 
-- **Windows**: Windows 10 (19041+) and Windows 11 (x64 / ARM64 ready).
-- **Linux**: Ubuntu 22.04+, Debian 12+, Fedora 38+, Arch Linux (PipeWire or PulseAudio).
+- **Windows**: Windows 10 (19041+) and Windows 11 (x64 / ARM64 ready)
+- **Linux**: Ubuntu 22.04+, Debian 12+, Fedora 38+, Arch Linux (PipeWire or PulseAudio)
+
+**Note:** macOS is not officially tested but may work (similar to Linux).
 
 ---
 
@@ -88,12 +90,78 @@ er-audio-tool
 
 ---
 
-## Browser Companion Setup
+## Documentation
 
-1. Open `chrome://extensions` in Chrome, Edge, or Brave.
-2. Enable **Developer Mode** (top-right toggle).
-3. Click **Load unpacked** and select the `browser_extension/` directory.
-4. Copy your local session token from **Settings / Browser** in `er-audio-tool` into the extension popup.
+### Quick Links
+- 📖 **[Browser Extension Setup Guide](BROWSER_EXTENSION_SETUP.md)** - Complete step-by-step extension installation
+- 🔧 **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Solve common issues and errors
+- 🔒 **[Security & Privacy Statement](SECURITY_PRIVACY.md)** - How we protect your data
+- 🎵 **[Codec Support Matrix](CODEC_SUPPORT.md)** - Detailed format compatibility
+- 📋 **[Changelog](CHANGELOG.md)** - Version history and changes
+- 🏗️ **[Architecture Overview](ARCHITECTURE.md)** - Technical design
+- ⚖️ **[Third-Party Notices](THIRD_PARTY_NOTICES.md)** - Open source licenses
+
+### Browser Companion Setup (Quick Start)
+
+For detailed instructions with screenshots and troubleshooting, see **[BROWSER_EXTENSION_SETUP.md](BROWSER_EXTENSION_SETUP.md)**.
+
+**Quick setup:**
+1. Open `chrome://extensions` in Chrome, Edge, or Brave
+2. Enable **Developer Mode** (top-right toggle)
+3. Click **Load unpacked** and select the `browser_extension/` directory
+4. Copy your pairing token from **Settings > Browser Integration** in er-audio-tool
+5. Paste token into extension popup and authenticate
+
+---
+
+## Known Limitations
+
+- **Windows Application Audio**: Currently unavailable (honestly reported in UI). Use System Output mode to capture all system audio.
+- **Stem Separation**: Placeholder implementation (no ML model yet). Under consideration for future release.
+- **Full MIDI Arrangement**: Currently outputs single track. Multitrack implementation in progress.
+
+See **[Troubleshooting Guide](TROUBLESHOOTING.md)** for workarounds and details.
+
+---
+
+## Security & Privacy
+
+er-audio-tool is designed with privacy as a core principle:
+
+- ✅ **100% Local Processing** - All audio stays on your device
+- ✅ **Zero Telemetry** - No analytics, tracking, or data collection
+- ✅ **No Cloud Services** - No external servers, no uploads
+- ✅ **Open Source** - Verify our privacy claims yourself
+- ✅ **Loopback-Only Server** - Browser extension communicates only with localhost
+- ✅ **Strong Authentication** - 192-bit cryptographic tokens
+
+Read the complete **[Security & Privacy Statement](SECURITY_PRIVACY.md)**.
+
+---
+
+## Troubleshooting
+
+**Common issues:**
+
+- **No audio devices found** → Check audio drivers and backend availability
+- **Empty recordings** → Verify source is playing audio, check level meters
+- **Browser extension won't connect** → Verify token, ensure desktop app is running
+- **M4A files won't convert** → Install FFmpeg via Settings > Setup & Codecs
+- **Language switch doesn't work** → Should be immediate; report if not
+
+See the complete **[Troubleshooting Guide](TROUBLESHOOTING.md)** for solutions to these and many other issues.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Check existing issues before creating new ones
+2. Follow existing code style and architecture patterns
+3. Add tests for new features
+4. Update documentation for user-facing changes
+5. Respect the security and privacy principles
 
 ---
 
@@ -108,3 +176,14 @@ er-audio-tool
 er-audio-tool is licensed under the [MIT License](LICENSE).  
 Copyright (c) 2025 Robin Doak (Original Lineage)  
 Copyright (c) 2026 Eidolf (er-audio-tool Maintainer)
+
+See **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)** for open source dependencies and their licenses.
+
+---
+
+## Support
+
+- 📖 **Documentation**: See links at top of README
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/Eidolf/ER-Audio-Tool/issues)
+- 💬 **Questions**: [GitHub Discussions](https://github.com/Eidolf/ER-Audio-Tool/discussions) (if enabled)
+- 📧 **Security Issues**: andreas@eidolf.de (private disclosure)
