@@ -2,62 +2,111 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>er-audio-tool Tab Capture</title>
+  <title>er-audio-tool Tab Selection & Capture</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       margin: 0;
-      padding: 16px;
-      width: 280px;
-      background: #1e1e1e;
-      color: #e0e0e0;
+      padding: 14px;
+      width: 320px;
+      background: #181c1f;
+      color: #eceff1;
     }
-    h3 { margin-top: 0; font-size: 16px; color: #4db6ac; }
-    p { font-size: 12px; color: #aaa; line-height: 1.4; }
+    h3 { margin: 0 0 6px 0; font-size: 15px; color: #80cbc4; }
+    p { font-size: 11px; color: #90a4ae; line-height: 1.35; margin: 0 0 10px 0; }
     .input-field {
       width: 100%;
       box-sizing: border-box;
-      padding: 8px;
-      background: #2b2b2b;
-      border: 1px solid #444;
+      padding: 6px 8px;
+      background: #263238;
+      border: 1px solid #37474f;
       color: #fff;
       border-radius: 4px;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
       font-size: 11px;
     }
-    button {
-      width: 100%;
-      padding: 10px;
-      border: none;
-      border-radius: 4px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    .btn-start { background: #26a69a; color: #fff; }
-    .btn-stop { background: #e53935; color: #fff; display: none; }
     .badge {
       display: inline-block;
       padding: 2px 6px;
       border-radius: 4px;
       font-size: 10px;
       margin-bottom: 8px;
+      font-weight: 500;
     }
-    .badge-idle { background: #444; color: #bbb; }
+    .badge-idle { background: #37474f; color: #cfd8dc; }
     .badge-rec { background: #c62828; color: #fff; }
+    .badge-audible { background: #00695c; color: #80cbc4; font-size: 9px; padding: 1px 4px; border-radius: 3px; }
+    
+    .tab-list {
+      max-height: 160px;
+      overflow-y: auto;
+      border: 1px solid #37474f;
+      border-radius: 4px;
+      background: #212121;
+      margin-bottom: 10px;
+    }
+    .tab-item {
+      padding: 7px 10px;
+      border-bottom: 1px solid #2d373c;
+      cursor: pointer;
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .tab-item:last-child { border-bottom: none; }
+    .tab-item:hover { background: #263238; }
+    .tab-item.selected { background: #004d40; border-left: 3px solid #80cbc4; }
+    .tab-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab-meta { font-size: 9px; color: #78909c; display: flex; justify-content: space-between; }
+
+    button {
+      width: 100%;
+      padding: 9px;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .btn-start { background: #00897b; color: #fff; }
+    .btn-start:hover { background: #00796b; }
+    .btn-stop { background: #e53935; color: #fff; }
+    .btn-stop:hover { background: #d32f2f; }
+    .btn-refresh {
+      background: transparent;
+      border: 1px solid #455a64;
+      color: #b0bec5;
+      padding: 4px 8px;
+      font-size: 10px;
+      width: auto;
+      cursor: pointer;
+      margin-bottom: 6px;
+    }
+    .filter-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
   </style>
 </head>
 <body>
-  <h3>er-audio-tool Companion</h3>
-  <div id="statusBadge" class="badge badge-idle">Status: Idle</div>
-  <p>Capture audio from the active tab and stream securely to your local er-audio-tool desktop application.</p>
+  <h3>er-audio-tool Tab Capture</h3>
+  <div id="statusBadge" class="badge badge-idle">Status: Ready</div>
+  <p>Select a browser tab below to capture its audio stream without recording your microphone.</p>
+
+  <label for="tokenInput" style="font-size: 10px; font-weight: bold; color: #b0bec5;">Session Auth Token:</label>
+  <input type="password" id="tokenInput" class="input-field" placeholder="Paste session token from desktop app" />
+
+  <div class="filter-row">
+    <span style="font-size: 11px; font-weight: bold;">Select Target Tab:</span>
+    <button id="btnRefreshTabs" class="btn-refresh">↻ Refresh Tabs</button>
+  </div>
   
-  <label for="tokenInput" style="font-size: 11px; font-weight: bold;">Session Auth Token:</label>
-  <input type="password" id="tokenInput" class="input-field" placeholder="Paste token from desktop app" />
+  <div id="tabList" class="tab-list">
+    <div style="padding: 15px; text-align: center; color: #78909c; font-size: 11px;">Loading tabs...</div>
+  </div>
 
-  <button id="btnToggle" class="btn-start">Record Active Tab</button>
+  <button id="btnToggle" class="btn-start">Record Selected Tab</button>
 
-  <p style="margin-top: 12px; font-size: 10px; color: #777;">
-    🔒 Protected audio and DRM-restricted streams cannot be captured. Requires explicit user consent.
+  <p style="margin-top: 10px; font-size: 9px; color: #607d8b; line-height: 1.3;">
+    🔒 Uses explicit tabCapture API. Audio is streamed exclusively over local loopback (127.0.0.1).
   </p>
 
   <script src="popup.js"></script>

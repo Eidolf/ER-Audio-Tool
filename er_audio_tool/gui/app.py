@@ -79,10 +79,15 @@ class ErAudioApp(ctk.CTk):
             self._current_view_name = "rec_system"
 
         self.browser_server = BrowserServer()
+        self.device_manager.set_browser_server(self.browser_server)
+        self.browser_server.start_background()
         self._token_visible = False
+        self._current_session_id = None
+        self._current_source_type = None
 
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self._build_shell()
+
         self.i18n.subscribe(self._on_language_updated)
         self._show_view(self._current_view_name)
         self._update_loop()
@@ -337,22 +342,13 @@ class ErAudioApp(ctk.CTk):
         src_row = ctk.CTkFrame(f, fg_color="transparent")
         src_row.pack(fill="x", pady=6)
         ctk.CTkLabel(src_row, text=self.i18n.t("source_label"), width=120, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
-        all_devs = self.device_manager.enumerate_all_devices()
-        
-        # Filter endpoints according to active mode
-        if self._current_view_name == "rec_system":
-            self.devices = [d for d in all_devs if d.is_loopback] or all_devs
-        elif self._current_view_name == "rec_app":
-            self.devices = [d for d in all_devs if ("app" in d.name.lower() or "process" in d.name.lower() or d.is_loopback)] or all_devs
-        elif self._current_view_name == "rec_browser":
-            self.devices = [d for d in all_devs if ("browser" in d.name.lower() or d.is_loopback)] or all_devs
-        else:
-            self.devices = all_devs
+        self.devices = self.device_manager.enumerate_all_devices(self._current_view_name)
 
         dev_names = [d.name for d in self.devices] or ["Default Endpoint"]
         self.source_combo = ctk.CTkComboBox(src_row, values=dev_names, width=420)
         self.source_combo.set(dev_names[0])
         self.source_combo.pack(side="left", padx=10)
+
 
         # Format Selection
         fmt_row = ctk.CTkFrame(f, fg_color="transparent")
@@ -527,6 +523,21 @@ class ErAudioApp(ctk.CTk):
         self.browser_tok_status = ctk.CTkLabel(token_card, text=self.i18n.t("ext_status_ready"), font=ctk.CTkFont(size=11), text_color="#80cbc4")
         self.browser_tok_status.pack(anchor="w", padx=15, pady=(2, 12))
 
+        # Live Extension Verification Status Card
+        conn_card = ctk.CTkFrame(f, fg_color="#1a2327", corner_radius=8)
+        conn_card.pack(fill="x", pady=10)
+        ctk.CTkLabel(conn_card, text="Connection & Selected Tab Verification", font=ctk.CTkFont(size=14, weight="bold"), text_color="#80deea").pack(anchor="w", padx=15, pady=(12, 6))
+
+        ext_state = "Connected & Authenticated" if self.browser_server.is_authenticated else ("Connected (Unauthenticated)" if self.browser_server.is_connected else "Waiting for Extension Connection")
+        ext_color = "#4db6ac" if self.browser_server.is_authenticated else ("#ffb74d" if self.browser_server.is_connected else "#90a4ae")
+        tab_info_str = f"{self.browser_server.selected_tab.title} (Tab ID: {self.browser_server.selected_tab.tab_id})" if self.browser_server.selected_tab else "None selected yet (Open extension popup to pick a tab)"
+
+        v_inner = ctk.CTkFrame(conn_card, fg_color="transparent")
+        v_inner.pack(fill="x", padx=15, pady=(0, 10))
+        ctk.CTkLabel(v_inner, text=f"• Extension Handshake: {ext_state}", text_color=ext_color, font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", pady=2)
+        ctk.CTkLabel(v_inner, text=f"• Selected Browser Tab: {tab_info_str}", text_color="#eceff1", font=ctk.CTkFont(size=11)).pack(anchor="w", pady=2)
+        ctk.CTkLabel(v_inner, text=f"• Received Audio Frames: {self.browser_server.received_frames_count}", text_color="#b0bec5", font=ctk.CTkFont(size=11)).pack(anchor="w", pady=2)
+
         # Setup Instructions Guide
         guide_card = ctk.CTkFrame(f, fg_color="#1e272c", corner_radius=8)
         guide_card.pack(fill="x", pady=10)
@@ -537,9 +548,10 @@ class ErAudioApp(ctk.CTk):
             "2. In your browser, open edge://extensions or chrome://extensions.\n"
             "3. Enable 'Developer mode' (switch in sidebar or top bar).\n"
             "4. Click 'Load unpacked' and select the copied directory.\n"
-            "5. Open the extension popup, paste the Session Token, and select your tab to capture."
+            "5. Open the extension popup, paste the Session Token, select the target tab from the list, and click Record."
         )
         ctk.CTkLabel(guide_card, text=guide_text, justify="left", font=ctk.CTkFont(size=12), text_color="#cfd8dc").pack(anchor="w", padx=15, pady=(0, 12))
+
 
     def _render_analysis_view(self):
         f = ctk.CTkScrollableFrame(self.content_frame, fg_color="transparent")
@@ -976,6 +988,13 @@ class ErAudioApp(ctk.CTk):
             self._record_start_time = time.time()
             self._elapsed_paused_time = 0.0
 
+            import uuid
+            self._current_session_id = str(uuid.uuid4())
+            self.audio_buffer.set_active_session(self._current_session_id)
+
+            backend = self.device_manager.get_backend_for_source_type(self._current_view_name)
+            self._active_backend = backend
+
             selected_name = self.source_combo.get()
             dev = next((d for d in self.devices if d.name == selected_name), self.devices[0] if self.devices else None)
             if not dev:
@@ -985,7 +1004,7 @@ class ErAudioApp(ctk.CTk):
                 return
 
             try:
-                self._active_backend.start_capture(
+                backend.start_capture(
                     dev,
                     self.cfg.sample_rate,
                     self.cfg.channels,
@@ -1000,6 +1019,7 @@ class ErAudioApp(ctk.CTk):
                 self.state_machine.transition_to(AppState.FAILED)
                 self.state_machine.transition_to(AppState.IDLE)
                 messagebox.showerror(self.i18n.t("error"), f"Capture initialization failed: {ex}")
+
 
     def _on_pause_clicked(self):
         curr = self.state_machine.current_state
@@ -1050,7 +1070,7 @@ class ErAudioApp(ctk.CTk):
     def _on_audio_data_received(self, data: np.ndarray):
         if self.state_machine.current_state == AppState.RECORDING:
             self._recording_data.append(data.copy())
-            self.audio_buffer.push(data)
+            self.audio_buffer.push(data, session_id=self._current_session_id)
 
     def _on_execute_conversion(self):
         in_p = self.conv_input_entry.get().strip()
@@ -1353,18 +1373,27 @@ class ErAudioApp(ctk.CTk):
             if hasattr(self, "timer_disp"):
                 self.timer_disp.configure(text=f"{h:02d}:{m:02d}:{s:02d}")
 
-        if hasattr(self, "meter_l"):
-            peak_db, rms_db, is_clip = self.audio_buffer.get_levels()
-            val = max(0.0, (peak_db + 60.0) / 60.0) if peak_db > -60.0 else 0.0
-            self.meter_l.set(min(1.0, val))
-            self.meter_r.set(min(1.0, val))
-            self.meter_text.configure(text=f"Levels: L {peak_db:.1f} dB | R {peak_db:.1f} dB | RMS {rms_db:.1f} dB")
+        if hasattr(self, "meter_l") and self.meter_l.winfo_exists():
+            pk_l, pk_r, pk, rms, is_clip, frames = self.audio_buffer.get_stereo_levels()
+            val_l = max(0.0, (pk_l + 60.0) / 60.0) if pk_l > -60.0 else 0.0
+            val_r = max(0.0, (pk_r + 60.0) / 60.0) if pk_r > -60.0 else 0.0
+            self.meter_l.set(min(1.0, val_l))
+            self.meter_r.set(min(1.0, val_r))
+
+            pk_l_str = f"{pk_l:.1f} dB" if pk_l > -95.0 else "-inf dB"
+            pk_r_str = f"{pk_r:.1f} dB" if pk_r > -95.0 else "-inf dB"
+            pk_str = f"{pk:.1f} dBFS" if pk > -95.0 else "-inf dBFS"
+            rms_str = f"{rms:.1f} dBFS" if rms > -95.0 else "-inf dBFS"
+
+            sig_state = "Signal Detected" if pk > -55.0 else ("Receiving Frames" if frames > 0 else "Idle / Silent")
+            self.meter_text.configure(text=f"Levels: L {pk_l_str} | R {pk_r_str} | Peak {pk_str} | RMS {rms_str} [{sig_state}]")
             if is_clip:
                 self.clip_warn.configure(text=self.i18n.t("clipping_detected"))
             else:
                 self.clip_warn.configure(text="")
 
         self.after(50, self._update_loop)
+
 
     # ------------------ CODEC MANAGEMENT & LIFECYCLE ------------------ #
 

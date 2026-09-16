@@ -156,6 +156,12 @@ class WindowsWasapiBackend(AudioCaptureBackend):
         # Ranked format candidates
         candidates = []
         if is_render:
+            # Render endpoints MUST use loopback settings and must NEVER fall back to standard input stream (which captures microphone)
+            if wasapi_settings is None:
+                raise RuntimeError(
+                    f"WASAPI loopback settings could not be initialized for render endpoint '{device.name}'. "
+                    f"Microphone fallback is strictly prohibited for System Audio."
+                )
             # 1. Native output mix layout & rate
             candidates.append((target_ch, target_sr, wasapi_settings, "Native Output Mix"))
             # 2. Stereo & native rate
@@ -166,11 +172,9 @@ class WindowsWasapiBackend(AudioCaptureBackend):
             candidates.append((2, 48000, wasapi_settings, "Stereo 48kHz"))
             # 5. Stereo & 44100 Hz
             candidates.append((2, 44100, wasapi_settings, "Stereo 44.1kHz"))
-            # 6. Fallback without explicit extra_settings
-            candidates.append((target_ch, target_sr, None, "Direct Stream"))
-            candidates.append((2, target_sr, None, "Direct Stereo"))
         else:
             candidates.append((target_ch, target_sr, None, "Native Input Format"))
+
             candidates.append((channels, target_sr, None, "Requested Channels"))
             candidates.append((2, target_sr, None, "Stereo Input"))
             candidates.append((1, target_sr, None, "Mono Input"))
