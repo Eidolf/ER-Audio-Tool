@@ -668,27 +668,44 @@ class ErAudioApp(ctk.CTk):
         self.ana_box = ctk.CTkTextbox(f, height=130)
         self.ana_box.pack(fill="x", pady=10)
 
-        # Deep Source Separation & Stem Mixer Section
-        sep_hdr = ctk.CTkFrame(f, fg_color="#1e272c", corner_radius=6)
+        # Deep Source Separation & Stem Mixer Section (Experimental/Roadmap)
+        sep_hdr = ctk.CTkFrame(f, fg_color="#2c2416", corner_radius=6)
         sep_hdr.pack(fill="x", pady=(10, 8), padx=2)
         sep_hdr_inner = ctk.CTkFrame(sep_hdr, fg_color="transparent")
         sep_hdr_inner.pack(fill="x", padx=12, pady=10)
 
-        ctk.CTkLabel(sep_hdr_inner, text="Deep Source Separation & Multitrack Stem Mixer", font=ctk.CTkFont(size=14, weight="bold"), text_color="#80cbc4").pack(side="left")
+        ctk.CTkLabel(sep_hdr_inner, text="Stem Separation (Experimental - Basic Quality)", font=ctk.CTkFont(size=14, weight="bold"), text_color="#ffa726").pack(side="left")
+
+        # Warning info box
+        warning_frame = ctk.CTkFrame(f, fg_color="#2d2416", corner_radius=4)
+        warning_frame.pack(fill="x", pady=6, padx=10)
+        warning_text = (
+            "⚠️ Current implementation uses frequency filtering, not ML-based separation.\n"
+            "For professional stem separation, use external tools (Demucs, Spleeter).\n"
+            "ML-based separation is planned for future release."
+        )
+        ctk.CTkLabel(
+            warning_frame,
+            text=warning_text,
+            font=ctk.CTkFont(size=10),
+            text_color="#ffb74d",
+            justify="left",
+        ).pack(padx=10, pady=8)
+
         self.btn_separate = ctk.CTkButton(
-            sep_hdr_inner,
-            text="⚡ Extract 4 Stems (Vocals, Drums, Bass, Other)",
-            fg_color="#00897b",
-            hover_color="#00695c",
+            f,
+            text="⚡ Extract Stems (Experimental)",
+            fg_color="#5a5a2a",
+            hover_color="#6a6a3a",
             command=self._on_run_stem_separation,
         )
-        self.btn_separate.pack(side="right", padx=5)
+        self.btn_separate.pack(pady=6)
 
         self.sep_progress = ctk.CTkProgressBar(f, height=6)
         self.sep_progress.pack(fill="x", pady=(2, 6))
         self.sep_progress.set(0.0)
 
-        self.sep_status_lbl = ctk.CTkLabel(f, text="Ready. Select an audio file and extract stems.", text_color="#90a4ae", font=ctk.CTkFont(size=11))
+        self.sep_status_lbl = ctk.CTkLabel(f, text="Experimental feature: Uses frequency filtering only.", text_color="#90a4ae", font=ctk.CTkFont(size=11))
         self.sep_status_lbl.pack(anchor="w", pady=(0, 10))
 
         # Container for Stem Mixer Lanes
