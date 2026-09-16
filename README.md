@@ -35,7 +35,8 @@ A privacy-conscious, local-first desktop audio suite for Windows and Linux. Reco
 
 5. **Audio to MIDI Transcription**  
    - Offline pitch tracking and note onset detection.
-   - Exports standards-compliant SMF Type 0 `.mid` files.
+   - Exports standards-compliant SMF `.mid` files.
+   - Multiple profiles: Melody, Piano, Bass, Vocals, Percussion.
 
 6. **MIDI to MP3 Rendering**  
    - Synthesizes MIDI notes into WAV and MP3 audio.
@@ -44,6 +45,14 @@ A privacy-conscious, local-first desktop audio suite for Windows and Linux. Reco
 7. **Privacy & Local-First Integrity**  
    - Zero telemetry, cloud uploads, or tracking.
    - Redacted logs (credentials and secrets stripped).
+
+---
+
+## Roadmap Features (Coming Soon)
+
+- **ML-Based Stem Separation**: Professional-quality source separation using deep learning models (Demucs/Spleeter)
+- **Full Multi-Track MIDI**: Complete arrangement export with synchronized tracks and instruments
+- **Windows Application Audio**: Process-specific audio capture (pending native Windows API integration)
 
 ---
 
