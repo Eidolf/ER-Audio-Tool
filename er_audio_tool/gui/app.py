@@ -29,6 +29,7 @@ from er_audio_tool.diagnostics.runner import DiagnosticRunner
 from er_audio_tool.help import get_help_topic
 from er_audio_tool.audio.codecs import get_codec_manager, CODEC_SCOPES
 from er_audio_tool.browser.server import BrowserServer
+from er_audio_tool.browser.registry import BrowserConnectionRegistry, ConnectionState, ConnectionSnapshot
 from er_audio_tool.version import get_version
 
 
@@ -79,7 +80,8 @@ class ErAudioApp(ctk.CTk):
         else:
             self._current_view_name = "rec_system"
 
-        self.browser_server = BrowserServer()
+        self.browser_registry = BrowserConnectionRegistry.get_instance()
+        self.browser_server = BrowserServer(registry=self.browser_registry)
         self.device_manager.set_browser_server(self.browser_server)
         self.browser_server.start_background()
         self._token_visible = False
@@ -362,17 +364,33 @@ class ErAudioApp(ctk.CTk):
         m_row.pack(fill="x", padx=12, pady=(8, 2))
         ctk.CTkLabel(m_row, text=mode_hdr, font=ctk.CTkFont(size=14, weight="bold"), text_color="#80deea").pack(side="left")
         if self._current_view_name == "rec_browser":
+            b_btn_frame = ctk.CTkFrame(m_row, fg_color="transparent")
+            b_btn_frame.pack(side="right")
             ctk.CTkButton(
-                m_row,
+                b_btn_frame,
+                text="🔄 " + self.i18n.t("btn_recheck_readiness"),
+                width=140,
+                height=26,
+                fg_color="#00695c",
+                hover_color="#004d40",
+                command=self._on_test_browser_connection_clicked,
+            ).pack(side="right", padx=(6, 0))
+            ctk.CTkButton(
+                b_btn_frame,
                 text="🔌 " + self.i18n.t("btn_test_conn"),
-                width=130,
+                width=120,
                 height=26,
                 fg_color="#00897b",
                 hover_color="#00695c",
-                command=self._on_test_browser_connection_clicked,
+                command=lambda: self._show_view("dev_browser"),
             ).pack(side="right")
 
-        ctk.CTkLabel(mode_card, text=mode_desc, font=ctk.CTkFont(size=11), text_color="#b0bec5").pack(anchor="w", padx=12, pady=(0, 8))
+        ctk.CTkLabel(mode_card, text=mode_desc, font=ctk.CTkFont(size=11), text_color="#b0bec5").pack(anchor="w", padx=12, pady=(0, 4))
+        if self._current_view_name == "rec_browser":
+            snap = self.browser_registry.get_snapshot()
+            st_text = f"• State: {snap.state.value} | Tab: {snap.selected_tab.title if snap.selected_tab else 'None'} | Gen: {snap.connection_generation} | Heartbeat: {snap.last_heartbeat_age_seconds:.0f}s ago"
+            self.lbl_rec_browser_status = ctk.CTkLabel(mode_card, text=st_text, font=ctk.CTkFont(size=11, weight="bold"), text_color="#80deea" if snap.authenticated_session_id else "#ffb74d")
+            self.lbl_rec_browser_status.pack(anchor="w", padx=12, pady=(0, 6))
 
         # Source Selection
         src_row = ctk.CTkFrame(f, fg_color="transparent")
@@ -1078,7 +1096,15 @@ class ErAudioApp(ctk.CTk):
             except Exception as ex:
                 self.state_machine.transition_to(AppState.FAILED)
                 self.state_machine.transition_to(AppState.IDLE)
-                messagebox.showerror(self.i18n.t("error"), f"Capture initialization failed: {ex}")
+                err_str = str(ex)
+                if self._current_view_name == "rec_browser":
+                    messagebox.showerror(
+                        self.i18n.t("error"),
+                        f"Browser-Tab Aufnahme fehlgeschlagen:\n\n{err_str}\n\n"
+                        f"Aktion: Überprüfen Sie bitte 'Geräte > Browser-Verbindung' oder öffnen Sie das Erweiterungs-Popup.",
+                    )
+                else:
+                    messagebox.showerror(self.i18n.t("error"), f"Capture initialization failed:\n\n{err_str}")
 
 
     def _on_pause_clicked(self):
@@ -1238,31 +1264,45 @@ class ErAudioApp(ctk.CTk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_test_browser_connection_clicked(self):
-        token = self.browser_server.auth_token if self.browser_server else ""
-        ext_state = "Connected & Authenticated" if (self.browser_server and self.browser_server.is_authenticated) else ("Connected (Unauthenticated)" if (self.browser_server and self.browser_server.is_connected) else "Waiting for Extension Connection")
-        ext_color = "#4db6ac" if (self.browser_server and self.browser_server.is_authenticated) else ("#ffb74d" if (self.browser_server and self.browser_server.is_connected) else "#90a4ae")
-        tab_info_str = f"{self.browser_server.selected_tab.title} (Tab ID: {self.browser_server.selected_tab.tab_id})" if (self.browser_server and self.browser_server.selected_tab) else "None selected yet (Open extension popup to pick a tab)"
+        snap = self.browser_registry.get_snapshot()
+        ext_state = snap.state.value
+        ext_color = "#4db6ac" if snap.authenticated_session_id else ("#ffb74d" if snap.state != ConnectionState.SERVER_STOPPED else "#90a4ae")
+        tab_info_str = f"{snap.selected_tab.title} (Tab ID: {snap.selected_tab.tab_id})" if snap.selected_tab else "None selected yet (Open extension popup to pick a tab)"
 
-        if hasattr(self, "lbl_ext_handshake"):
+        if hasattr(self, "lbl_ext_handshake") and self.lbl_ext_handshake.winfo_exists():
             self.lbl_ext_handshake.configure(text=f"• Extension Handshake: {ext_state}", text_color=ext_color)
-        if hasattr(self, "lbl_ext_tab"):
+        if hasattr(self, "lbl_ext_tab") and self.lbl_ext_tab.winfo_exists():
             self.lbl_ext_tab.configure(text=f"• Selected Browser Tab: {tab_info_str}")
-        if hasattr(self, "lbl_ext_frames"):
-            frames = self.browser_server.received_frames_count if self.browser_server else 0
-            self.lbl_ext_frames.configure(text=f"• Received Audio Frames: {frames}")
+        if hasattr(self, "lbl_ext_frames") and self.lbl_ext_frames.winfo_exists():
+            self.lbl_ext_frames.configure(text=f"• Received Audio Frames: {snap.received_frames_count}")
 
-        if self.browser_server and self.browser_server.is_authenticated:
+        if hasattr(self, "lbl_rec_browser_status") and self.lbl_rec_browser_status.winfo_exists():
+            st_text = f"• State: {snap.state.value} | Tab: {snap.selected_tab.title if snap.selected_tab else 'None'} | Gen: {snap.connection_generation} | Heartbeat: {snap.last_heartbeat_age_seconds:.0f}s ago"
+            self.lbl_rec_browser_status.configure(text=st_text, text_color=ext_color)
+
+        # Refresh device dropdown so newly selected tab appears immediately
+        if self._current_view_name == "rec_browser":
+            self.devices = self.device_manager.enumerate_all_devices(self._current_view_name)
+            dev_names = [d.name for d in self.devices] or ["Default Endpoint"]
+            if hasattr(self, "source_combo") and self.source_combo.winfo_exists():
+                self.source_combo.configure(values=dev_names)
+                if dev_names:
+                    self.source_combo.set(dev_names[0])
+
+        if snap.authenticated_session_id:
             messagebox.showinfo(
                 self.i18n.t("app_title"),
                 f"✓ Browser-Erweiterung ist erfolgreich verbunden und authentifiziert!\n\n"
+                f"Status: {snap.state.value}\n"
                 f"Aktiver Tab: {tab_info_str}\n"
-                f"Empfangene Frames: {self.browser_server.received_frames_count}",
+                f"Verbindungs-Generation: {snap.connection_generation}\n"
+                f"Empfangene Frames: {snap.received_frames_count}",
             )
         else:
             messagebox.showinfo(
                 self.i18n.t("app_title"),
                 f"Status der Browser-Kopplung:\n\n"
-                f"• Handshake: {ext_state}\n"
+                f"• Handshake: {snap.state.value}\n"
                 f"• Server lauscht auf: 127.0.0.1:58291\n"
                 f"• Token bereitgestellt: Ja\n\n"
                 f"Hinweis: Bitte öffnen Sie das Erweiterungs-Popup im Browser und klicken Sie dort auf 'Verbindung testen'.",

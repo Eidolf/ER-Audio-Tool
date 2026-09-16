@@ -24,7 +24,13 @@ def test_source_isolation_backend_selection():
         backend_type=BackendType.BROWSER_TAB,
         capability=DeviceCapability.BROWSER_STREAM,
     )
-    with pytest.raises(RuntimeError, match="not paired and authenticated"):
+    # When server is listening but unauthenticated
+    from er_audio_tool.browser.registry import BrowserConnectionRegistry
+    test_reg = BrowserConnectionRegistry()
+    test_reg.set_server_listening(True)
+    server.registry = test_reg
+    backend.registry = test_reg
+    with pytest.raises(RuntimeError, match="not authenticated"):
         backend.start_capture(device, 48000, 2, lambda data: None)
 
 def test_audio_buffer_stereo_level_separation():

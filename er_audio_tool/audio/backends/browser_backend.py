@@ -2,6 +2,7 @@
 
 Receives audio frames exclusively from the authenticated loopback companion
 extension server. Never invokes PortAudio or queries physical microphones.
+Enforces atomic recording-session reservation and immutable source descriptors.
 """
 from __future__ import annotations
 import threading
@@ -17,6 +18,11 @@ from er_audio_tool.audio.interfaces import (
     AudioDataCallback,
 )
 from er_audio_tool.browser.server import BrowserServer, BrowserTabInfo
+from er_audio_tool.browser.registry import (
+    BrowserConnectionRegistry,
+    BrowserTabSourceDescriptor,
+    ReservationError,
+)
 
 
 class BrowserTabCaptureBackend(AudioCaptureBackend):
@@ -24,8 +30,10 @@ class BrowserTabCaptureBackend(AudioCaptureBackend):
 
     def __init__(self, browser_server: BrowserServer):
         self.server = browser_server
+        self.registry = getattr(browser_server, "registry", BrowserConnectionRegistry.get_instance())
         self._running = False
         self._callback: Optional[AudioDataCallback] = None
+        self._active_descriptor: Optional[BrowserTabSourceDescriptor] = None
 
     def get_backend_type(self) -> BackendType:
         return BackendType.BROWSER_TAB
@@ -34,10 +42,11 @@ class BrowserTabCaptureBackend(AudioCaptureBackend):
         return True
 
     def enumerate_devices(self) -> list[AudioDeviceInfo]:
-        """Returns the currently selected or available browser tabs as capture endpoints."""
+        """Returns the currently selected browser tab as an isolated capture endpoint."""
         devices = []
-        if self.server.selected_tab:
-            tab = self.server.selected_tab
+        snap = self.registry.get_snapshot()
+        if snap.selected_tab:
+            tab = snap.selected_tab
             devices.append(
                 AudioDeviceInfo(
                     id=f"tab_{tab.tab_id}",
@@ -52,28 +61,10 @@ class BrowserTabCaptureBackend(AudioCaptureBackend):
                         "tab_id": tab.tab_id,
                         "title": tab.title,
                         "audible": tab.audible,
+                        "generation": tab.connection_generation,
                     },
                 )
             )
-        elif self.server.available_tabs:
-            for tab in self.server.available_tabs:
-                devices.append(
-                    AudioDeviceInfo(
-                        id=f"tab_{tab.tab_id}",
-                        name=f"[Browser Tab] {tab.title[:45]}",
-                        channels=2,
-                        sample_rate=48000,
-                        is_default=tab.active,
-                        is_loopback=True,
-                        backend_type=BackendType.BROWSER_TAB,
-                        capability=DeviceCapability.BROWSER_STREAM,
-                        extra={
-                            "tab_id": tab.tab_id,
-                            "title": tab.title,
-                            "audible": tab.audible,
-                        },
-                    )
-                )
         else:
             devices.append(
                 AudioDeviceInfo(
@@ -96,22 +87,27 @@ class BrowserTabCaptureBackend(AudioCaptureBackend):
         channels: int,
         callback: AudioDataCallback,
     ) -> None:
-        if not self.server.is_authenticated:
-            raise RuntimeError(
-                "Browser extension is not paired and authenticated. "
-                "Open Record > Browser Tab, copy the session token into the extension popup, and select a tab."
-            )
+        # Atomic reservation through the authoritative connection registry
+        try:
+            descriptor = self.registry.reserve_for_recording()
+            self._active_descriptor = descriptor
+        except ReservationError as re:
+            raise RuntimeError(f"{re.message} (Recommendation: {re.recommendation})")
+        except Exception as ex:
+            raise RuntimeError(f"Browser tab capture reservation failed: {ex}")
 
         self._running = True
         self._callback = callback
 
-        def on_browser_audio(chunk: np.ndarray):
+        def on_browser_audio(chunk: np.ndarray, capture_session_id: str):
             if self._running and self._callback:
-                self._callback(chunk)
+                if not self._active_descriptor or self._active_descriptor.capture_session_id == capture_session_id:
+                    self._callback(chunk)
 
-        self.server.on_audio_data = on_browser_audio
+        self.registry.set_audio_frame_consumer(on_browser_audio)
 
     def stop_capture(self) -> None:
         self._running = False
         self._callback = None
-        self.server.on_audio_data = None
+        self.registry.finish_capture_session()
+        self._active_descriptor = None

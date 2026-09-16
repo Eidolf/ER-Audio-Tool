@@ -1,4 +1,4 @@
-"""Audio Device and Backend Manager."""
+"""Audio Device and Backend Manager with strict source isolation."""
 from __future__ import annotations
 import sys
 from typing import Optional
@@ -8,13 +8,15 @@ from er_audio_tool.audio.interfaces import (
     BackendType,
 )
 from er_audio_tool.audio.backends.mock_backend import MockAudioBackend
-from er_audio_tool.audio.backends.windows_wasapi import WindowsWasapiBackend
+from er_audio_tool.audio.backends.windows_wasapi import (
+    WindowsSystemOutputCapture,
+    WindowsApplicationAudioCapture,
+    WindowsMicrophoneCapture,
+)
 from er_audio_tool.audio.backends.linux_backends import (
     LinuxPipeWireBackend,
     LinuxPulseAudioBackend,
 )
-
-
 from er_audio_tool.audio.backends.browser_backend import BrowserTabCaptureBackend
 from er_audio_tool.browser.server import BrowserServer
 
@@ -25,9 +27,13 @@ class DeviceManager:
     def __init__(self, preferred_backend: str = "auto", browser_server: BrowserServer | None = None):
         self.preferred_backend = preferred_backend
         self.browser_server = browser_server
+        self._win_system_capture = WindowsSystemOutputCapture()
+        self._win_app_capture = WindowsApplicationAudioCapture()
+        self._win_mic_capture = WindowsMicrophoneCapture()
+
         self._backends: dict[BackendType, AudioCaptureBackend] = {
             BackendType.MOCK: MockAudioBackend(),
-            BackendType.WASAPI: WindowsWasapiBackend(),
+            BackendType.WASAPI: self._win_system_capture,
             BackendType.PIPEWIRE: LinuxPipeWireBackend(),
             BackendType.PULSEAUDIO: LinuxPulseAudioBackend(),
         }
@@ -39,7 +45,14 @@ class DeviceManager:
         self._backends[BackendType.BROWSER_TAB] = BrowserTabCaptureBackend(server)
 
     def get_backend_for_source_type(self, source_mode: str) -> AudioCaptureBackend:
-        """Returns the isolated backend for the specified recording source mode."""
+        """Returns the isolated backend for the specified recording source mode.
+        
+        Strict rules:
+        - rec_browser: returns BrowserTabCaptureBackend (never mic)
+        - rec_system: returns WindowsSystemOutputCapture (never mic)
+        - rec_app: returns WindowsApplicationAudioCapture (never mic)
+        - rec_mic: returns WindowsMicrophoneCapture
+        """
         if self.preferred_backend == "mock":
             return self._backends[BackendType.MOCK]
 
@@ -52,11 +65,18 @@ class DeviceManager:
                 return b
             raise RuntimeError("Browser integration server is not active.")
 
-        # System output loopback & Application audio
         if sys.platform == "win32":
-            wasapi = self._backends[BackendType.WASAPI]
-            if wasapi.is_available():
-                return wasapi
+            if source_mode == "rec_system":
+                if self._win_system_capture.is_available():
+                    return self._win_system_capture
+            elif source_mode == "rec_app":
+                if self._win_app_capture.is_available():
+                    return self._win_app_capture
+            elif source_mode == "rec_mic":
+                if self._win_mic_capture.is_available():
+                    return self._win_mic_capture
+            elif self._win_system_capture.is_available():
+                return self._win_system_capture
 
         if sys.platform.startswith("linux"):
             pw = self._backends[BackendType.PIPEWIRE]
@@ -76,17 +96,4 @@ class DeviceManager:
     def enumerate_all_devices(self, source_mode: str = "rec_system") -> list[AudioDeviceInfo]:
         backend = self.get_backend_for_source_type(source_mode)
         devs = backend.enumerate_devices()
-
-        # If we are using mock backend, return mock devices
-        if backend.get_backend_type() == BackendType.MOCK:
-            return devs
-
-        # Never silently inject mock devices on real hardware systems!
-        # If rec_app is selected on Windows and no separate app loopback exists, return loopback output endpoints
-        # so the user can still capture the active audio stream.
-        if not devs and source_mode == "rec_app" and sys.platform == "win32":
-            wasapi = self._backends[BackendType.WASAPI]
-            return wasapi.enumerate_devices()
-
         return devs
-

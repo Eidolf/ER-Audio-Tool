@@ -278,41 +278,115 @@ class DiagnosticRunner:
                 )
             )
 
-        # Step C: Browser Companion Extension Check
-        import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.3)
+        # Step C: Browser Companion Extension Multi-Stage Readiness Check
         try:
-            res = sock.connect_ex(("127.0.0.1", 58291))
-            if res == 0:
+            from er_audio_tool.browser.registry import BrowserConnectionRegistry, ConnectionState
+            reg = BrowserConnectionRegistry.get_instance()
+            snap = reg.get_snapshot()
+
+            # Stage 1 & 2: Local service and connection
+            if snap.state == ConnectionState.SERVER_STOPPED:
                 test_results.append(
                     DiagnosticItem(
-                        category="Browser Companion",
-                        name="Loopback Server (Port 58291)",
-                        status="PASSED",
-                        details="Desktop Loopback Server lauscht und ist für Browser Extension erreichbar.",
+                        category="Browser Recording Readiness",
+                        name="1. Local Loopback Service",
+                        status="WARNING",
+                        details="Local server stopped on port 58291.",
+                        recommendation="Restart application.",
                     )
                 )
             else:
                 test_results.append(
                     DiagnosticItem(
-                        category="Browser Companion",
-                        name="Loopback Server (Port 58291)",
+                        category="Browser Recording Readiness",
+                        name="1. Local Loopback Service",
+                        status="PASSED",
+                        details=f"Service listening on 127.0.0.1:58291 (State: {snap.state.value})",
+                    )
+                )
+
+            # Stage 3: Authentication
+            if snap.authenticated_session_id:
+                test_results.append(
+                    DiagnosticItem(
+                        category="Browser Recording Readiness",
+                        name="2. Client Authentication",
+                        status="PASSED",
+                        details=f"Authenticated (Session: {snap.authenticated_session_id[:8]}..., Gen: {snap.connection_generation})",
+                    )
+                )
+            else:
+                test_results.append(
+                    DiagnosticItem(
+                        category="Browser Recording Readiness",
+                        name="2. Client Authentication",
                         status="WARNING",
-                        details="Loopback Server antwortet nicht auf Port 58291.",
-                        recommendation="Desktop-Anwendung neu starten.",
+                        details="Extension is not authenticated.",
+                        recommendation="Open extension popup and click 'Test Connection' or paste session token.",
+                    )
+                )
+
+            # Stage 4: Tab Selection & Freshness
+            if snap.selected_tab:
+                gen_match = snap.selected_tab.connection_generation == snap.connection_generation
+                if gen_match:
+                    test_results.append(
+                        DiagnosticItem(
+                            category="Browser Recording Readiness",
+                            name="3. Selected Tab Binding",
+                            status="PASSED",
+                            details=f"Tab #{snap.selected_tab.tab_id}: '{snap.selected_tab.title[:35]}' (Gen: {snap.selected_tab.connection_generation})",
+                        )
+                    )
+                else:
+                    test_results.append(
+                        DiagnosticItem(
+                            category="Browser Recording Readiness",
+                            name="3. Selected Tab Binding",
+                            status="WARNING",
+                            details=f"Tab #{snap.selected_tab.tab_id} belongs to prior generation ({snap.selected_tab.connection_generation} != {snap.connection_generation}).",
+                            recommendation="Reselect tab in extension popup.",
+                        )
+                    )
+            else:
+                test_results.append(
+                    DiagnosticItem(
+                        category="Browser Recording Readiness",
+                        name="3. Selected Tab Binding",
+                        status="WARNING",
+                        details="No browser tab currently selected.",
+                        recommendation="Open extension popup and click on the target tab.",
+                    )
+                )
+
+            # Stage 5: Heartbeat freshness
+            if snap.last_heartbeat_age_seconds < 120.0:
+                test_results.append(
+                    DiagnosticItem(
+                        category="Browser Recording Readiness",
+                        name="4. Heartbeat Freshness",
+                        status="PASSED",
+                        details=f"Last heartbeat {snap.last_heartbeat_age_seconds:.1f}s ago.",
+                    )
+                )
+            else:
+                test_results.append(
+                    DiagnosticItem(
+                        category="Browser Recording Readiness",
+                        name="4. Heartbeat Freshness",
+                        status="WARNING",
+                        details=f"Heartbeat aged ({snap.last_heartbeat_age_seconds:.0f}s).",
+                        recommendation="Trigger test connection in extension popup.",
                     )
                 )
         except Exception as ex:
             test_results.append(
                 DiagnosticItem(
-                    category="Browser Companion",
-                    name="Loopback Server (Port 58291)",
+                    category="Browser Recording Readiness",
+                    name="Readiness Check",
                     status="WARNING",
-                    details=f"Prüfung nicht möglich: {ex}",
+                    details=f"Could not query registry: {ex}",
                 )
             )
-        finally:
-            sock.close()
 
         return test_results
