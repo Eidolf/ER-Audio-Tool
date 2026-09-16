@@ -55,19 +55,25 @@ class LinuxPipeWireBackend(AudioCaptureBackend):
         callback: AudioDataCallback,
     ) -> None:
         self._running = True
-        # Use pw-record if available to capture raw PCM
         pw_rec = shutil.which("pw-record")
         if not pw_rec:
             raise RuntimeError("pw-record binary is not installed in the system PATH.")
+
+        # Dynamically find the default sink monitor name for true loopback capture.
+        # pw-record with --target set to a monitor sink captures system output audio.
+        monitor_target = self._find_default_sink_monitor()
 
         cmd = [
             pw_rec,
             "--format", "f32",
             "--rate", str(sample_rate),
             "--channels", str(channels),
-            "--target", "0",  # default target
-            "-"  # stdout
         ]
+        if monitor_target:
+            cmd.extend(["--target", monitor_target])
+        # If no monitor found, omit --target and let PipeWire pick its default
+        # capture node (may still be a mic – but avoids the wrong --target 0).
+        cmd.append("-")  # stdout
 
         self._proc = subprocess.Popen(
             cmd,
@@ -85,7 +91,6 @@ class LinuxPipeWireBackend(AudioCaptureBackend):
                 raw_bytes = self._proc.stdout.read(chunk_size)
                 if not raw_bytes:
                     break
-                # Convert to numpy float32
                 data = np.frombuffer(raw_bytes, dtype=np.float32)
                 if channels > 1:
                     data = data.reshape(-1, channels)
@@ -95,6 +100,56 @@ class LinuxPipeWireBackend(AudioCaptureBackend):
 
         self._thread = threading.Thread(target=read_loop, daemon=True)
         self._thread.start()
+
+    def _find_default_sink_monitor(self) -> str | None:
+        """Returns the PipeWire monitor target name for the default audio output sink.
+
+        Tries pw-cli first, falls back to pactl list short sinks.
+        Returns None if no monitor target can be detected.
+        """
+        # Strategy 1: Use pactl to find .monitor sources (works on PipeWire + PulseAudio layer)
+        pactl = shutil.which("pactl")
+        if pactl:
+            try:
+                out = subprocess.check_output(
+                    [pactl, "get-default-sink"], text=True, timeout=3
+                ).strip()
+                if out:
+                    return f"{out}.monitor"
+            except Exception:
+                pass
+            # Fallback: list all sinks and pick first monitor
+            try:
+                out = subprocess.check_output(
+                    [pactl, "list", "short", "sources"], text=True, timeout=3
+                )
+                for line in out.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 2 and ".monitor" in parts[1]:
+                        return parts[1]
+            except Exception:
+                pass
+
+        # Strategy 2: pw-cli list objects
+        pw_cli = shutil.which("pw-cli")
+        if pw_cli:
+            try:
+                out = subprocess.check_output(
+                    [pw_cli, "list-objects", "Node"],
+                    text=True, timeout=5, stderr=subprocess.DEVNULL
+                )
+                for line in out.splitlines():
+                    if "Monitor" in line and "name" in line.lower():
+                        # Extract name value from e.g. name = "alsa_output.pci.monitor"
+                        idx = line.find('"')
+                        if idx != -1:
+                            end = line.find('"', idx + 1)
+                            if end != -1:
+                                return line[idx + 1:end]
+            except Exception:
+                pass
+
+        return None
 
     def stop_capture(self) -> None:
         self._running = False

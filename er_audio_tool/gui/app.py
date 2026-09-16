@@ -289,6 +289,8 @@ class ErAudioApp(ctk.CTk):
         if self._monitoring_active:
             self._stop_monitoring()
         self._current_view_name = view_id
+        # Re-render sidebar so the active-highlight follows the current selection
+        self._render_sidebar()
         for w in self.content_frame.winfo_children():
             w.destroy()
 

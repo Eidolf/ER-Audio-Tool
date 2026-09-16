@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "er-audio-tool Companion",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Secure companion extension for er-audio-tool to capture user-selected tab audio with full user consent.",
   "author": "Eidolf",
-  "minimum_chrome_version": "109",
+  "minimum_chrome_version": "116",
   "permissions": [
     "tabCapture",
     "tabs",
@@ -30,6 +30,7 @@
     "128": "icon128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   }
 }
