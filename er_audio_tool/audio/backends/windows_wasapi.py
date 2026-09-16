@@ -108,12 +108,26 @@ class WindowsWasapiBackend(AudioCaptureBackend):
 
         self._running = True
 
+        # Validate device existence in PortAudio
+        all_devs = []
+        try:
+            all_devs = sd.query_devices()
+        except Exception:
+            pass
+
+        if isinstance(device.id, int) and (device.id < 0 or device.id >= len(all_devs)):
+            raise RuntimeError(
+                f"Audio endpoint ID {device.id} ('{device.name}') is not recognized by Windows PortAudio.\n"
+                f"Total active devices detected: {len(all_devs)}.\n"
+                f"Recommendation: Refresh device list or check Windows sound configuration."
+            )
+
         # Query native device parameters
         d_info = {}
         try:
             d_info = sd.query_devices(device.id)
-        except Exception:
-            pass
+        except Exception as ex:
+            raise RuntimeError(f"Cannot query properties for audio endpoint {device.id} ('{device.name}'): {ex}")
 
         native_out_ch = int(d_info.get("max_output_channels", 0))
         native_in_ch = int(d_info.get("max_input_channels", 0))
@@ -149,6 +163,20 @@ class WindowsWasapiBackend(AudioCaptureBackend):
                     data = np.mean(data, axis=1, keepdims=True)
                 elif channels == 2 and data.shape[1] == 1:
                     data = np.column_stack((data, data))
+                elif channels == 2 and data.shape[1] > 2:
+                    # Quad/Surround (4ch, 5.1ch, 7.1ch) downmix to stereo
+                    # Left = Front-L + 0.707*Center + 0.707*Rear-L
+                    # Right = Front-R + 0.707*Center + 0.707*Rear-R
+                    fl = data[:, 0]
+                    fr = data[:, 1]
+                    if data.shape[1] >= 4:
+                        rl = data[:, 2]
+                        rr = data[:, 3]
+                        left_mix = 0.6 * fl + 0.4 * rl
+                        right_mix = 0.6 * fr + 0.4 * rr
+                        data = np.column_stack((left_mix, right_mix))
+                    else:
+                        data = data[:, :2]
                 elif channels > 0 and data.shape[1] > channels:
                     data = data[:, :channels]
                 callback(data)
@@ -162,19 +190,22 @@ class WindowsWasapiBackend(AudioCaptureBackend):
                     f"WASAPI loopback settings could not be initialized for render endpoint '{device.name}'. "
                     f"Microphone fallback is strictly prohibited for System Audio."
                 )
-            # 1. Native output mix layout & rate
-            candidates.append((target_ch, target_sr, wasapi_settings, "Native Output Mix"))
+            # 1. Native output mix layout & rate (GetMixFormat match)
+            candidates.append((target_ch, target_sr, wasapi_settings, "Method 1: Native Driver Mix Format"))
             # 2. Stereo & native rate
-            candidates.append((2, target_sr, wasapi_settings, "Stereo Native Rate"))
-            # 3. Native output mix & 48000 Hz
-            candidates.append((target_ch, 48000, wasapi_settings, "Native Output 48kHz"))
+            candidates.append((2, target_sr, wasapi_settings, "Method 2: Stereo Native Rate"))
+            # 3. Native output mix & 48000 Hz (standard for Realtek & Intel HD Audio)
+            candidates.append((target_ch, 48000, wasapi_settings, "Method 3: Native Channels 48kHz"))
             # 4. Stereo & 48000 Hz
-            candidates.append((2, 48000, wasapi_settings, "Stereo 48kHz"))
+            candidates.append((2, 48000, wasapi_settings, "Method 4: Stereo 48kHz Shared"))
             # 5. Stereo & 44100 Hz
-            candidates.append((2, 44100, wasapi_settings, "Stereo 44.1kHz"))
+            candidates.append((2, 44100, wasapi_settings, "Method 5: Stereo 44.1kHz Shared"))
+            # 6. Fallback to 4-channel surround if multichannel Realtek endpoint
+            if native_out_ch >= 4:
+                candidates.append((4, 48000, wasapi_settings, "Method 6: Quad Surround 48kHz (Downmixed)"))
+                candidates.append((4, 44100, wasapi_settings, "Method 7: Quad Surround 44.1kHz (Downmixed)"))
         else:
             candidates.append((target_ch, target_sr, None, "Native Input Format"))
-
             candidates.append((channels, target_sr, None, "Requested Channels"))
             candidates.append((2, target_sr, None, "Stereo Input"))
             candidates.append((1, target_sr, None, "Mono Input"))
@@ -192,7 +223,6 @@ class WindowsWasapiBackend(AudioCaptureBackend):
         last_error = None
 
         for ch, sr, extra, desc in unique_candidates:
-            attempted_log.append(f"{desc} (Channels: {ch}, Rate: {sr} Hz, Loopback: {extra is not None})")
             try:
                 self._stream = sd.InputStream(
                     device=device.id,
@@ -203,6 +233,7 @@ class WindowsWasapiBackend(AudioCaptureBackend):
                 )
                 self._stream.start()
                 stream_opened = True
+                attempted_log.append(f"[OK] {desc} ({ch}ch @ {sr}Hz)")
                 self._negotiated_format = {
                     "device": device.name,
                     "channels": ch,
@@ -213,15 +244,22 @@ class WindowsWasapiBackend(AudioCaptureBackend):
                 break
             except Exception as ex:
                 last_error = ex
+                err_msg = str(ex).strip().replace("\n", " ")
+                attempted_log.append(f"[FAIL] {desc} ({ch}ch @ {sr}Hz): {err_msg}")
 
         if not stream_opened:
-            attempts_str = " -> ".join(attempted_log)
+            attempts_report = "\n".join(f"  • {entry}" for entry in attempted_log)
             err_detail = (
-                f"Failed to open audio stream on '{device.name}' (ID: {device.id}).\n"
-                f"Endpoint Max In: {native_in_ch}, Max Out: {native_out_ch}, Default Rate: {native_sr} Hz.\n"
-                f"Attempted Formats: {attempts_str}.\n"
-                f"Underlying Driver Error: {last_error}\n"
-                f"Recommendation: Ensure playback is active on this device and check Windows Sound settings."
+                f"Audio Capture konnte nicht gestartet werden.\n\n"
+                f"Geräteinformationen:\n"
+                f"  • Endpunkt: '{device.name}' (ID: {device.id})\n"
+                f"  • Treiber Max In: {native_in_ch}, Max Out: {native_out_ch}, Standardrate: {native_sr} Hz\n\n"
+                f"Versuchte Methoden:\n{attempts_report}\n\n"
+                f"Unterliegender Fehler: {last_error}\n\n"
+                f"Empfohlene Abhilfemaßnahmen:\n"
+                f"1. Sicherstellen, dass auf diesem Ausgabegerät eine Audiowiedergabe aktiv ist.\n"
+                f"2. Windows-Soundeinstellungen prüfen (Wiedergabe > Eigenschaften > Erweitert: 24/16 Bit, 48000 Hz Standardformat).\n"
+                f"3. Exklusiven Modus in Windows deaktivieren, damit Shared Loopback möglich ist."
             )
             raise RuntimeError(err_detail)
 

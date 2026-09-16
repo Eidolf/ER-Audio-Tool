@@ -52,7 +52,7 @@ class DeviceManager:
                 return b
             raise RuntimeError("Browser integration server is not active.")
 
-        # System output loopback
+        # System output loopback & Application audio
         if sys.platform == "win32":
             wasapi = self._backends[BackendType.WASAPI]
             if wasapi.is_available():
@@ -66,6 +66,7 @@ class DeviceManager:
             if pulse.is_available():
                 return pulse
 
+        # Only use Mock if native hardware backends are unavailable
         return self._backends[BackendType.MOCK]
 
     def get_active_backend(self) -> AudioCaptureBackend:
@@ -75,8 +76,17 @@ class DeviceManager:
     def enumerate_all_devices(self, source_mode: str = "rec_system") -> list[AudioDeviceInfo]:
         backend = self.get_backend_for_source_type(source_mode)
         devs = backend.enumerate_devices()
-        if not devs:
-            # Fallback to mock
-            return self._backends[BackendType.MOCK].enumerate_devices()
+
+        # If we are using mock backend, return mock devices
+        if backend.get_backend_type() == BackendType.MOCK:
+            return devs
+
+        # Never silently inject mock devices on real hardware systems!
+        # If rec_app is selected on Windows and no separate app loopback exists, return loopback output endpoints
+        # so the user can still capture the active audio stream.
+        if not devs and source_mode == "rec_app" and sys.platform == "win32":
+            wasapi = self._backends[BackendType.WASAPI]
+            return wasapi.enumerate_devices()
+
         return devs
 

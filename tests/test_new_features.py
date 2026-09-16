@@ -66,10 +66,11 @@ def test_audio_converter_pipeline():
 def test_diagnostic_runner():
     with tempfile.TemporaryDirectory() as tmpdir:
         results = DiagnosticRunner.run_all_tests(tmpdir)
-        assert len(results) >= 5
+        assert len(results) >= 6
         categories = {r.category for r in results}
         assert "System" in categories
         assert "Storage" in categories
+        assert "Audio Capture" in categories
 
 
 def test_codec_manager_and_exit_lifecycle():

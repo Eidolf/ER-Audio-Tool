@@ -151,4 +151,109 @@ document.addEventListener("DOMContentLoaded", async () => {
       statusBadge.className = "badge badge-idle";
     }
   }
+
+  // --- Verbindung testen (Connection Diagnostic Test) ---
+  const btnTestConnection = document.getElementById("btnTestConnection");
+  const diagContainer = document.getElementById("diagContainer");
+  const diagStepExtension = document.getElementById("diagStepExtension");
+  const diagStepDesktop = document.getElementById("diagStepDesktop");
+  const diagStepAuth = document.getElementById("diagStepAuth");
+  const diagStepCapture = document.getElementById("diagStepCapture");
+  const diagStepTab = document.getElementById("diagStepTab");
+  const diagSummary = document.getElementById("diagSummary");
+
+  if (btnTestConnection) {
+    btnTestConnection.addEventListener("click", async () => {
+      diagContainer.style.display = "block";
+      const token = tokenInput.value.trim();
+
+      // Step 1: Extension loaded
+      diagStepExtension.innerHTML = "✅ <b>Browser Add-In:</b> Geladen & aktiv (v1.0.0)";
+      diagStepExtension.style.color = "#81c784";
+
+      // Step 2 & 3: Desktop reachability & Auth test
+      diagStepDesktop.innerHTML = "⏳ <b>Desktop-Anwendung:</b> Verbinde mit 127.0.0.1:58291...";
+      diagStepDesktop.style.color = "#ffb74d";
+      diagStepAuth.innerHTML = "⏳ <b>Authentifizierung:</b> Warte auf Antwort...";
+      diagStepAuth.style.color = "#b0bec5";
+
+      let desktopData = null;
+      try {
+        const resp = await fetch("http://127.0.0.1:58291/api/test_connection", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-Token": token,
+          },
+          body: JSON.stringify({ token: token }),
+        });
+
+        if (resp.status === 200) {
+          desktopData = await resp.json();
+          diagStepDesktop.innerHTML = "✅ <b>Desktop-Anwendung:</b> Erreichbar auf Loopback (Port 58291)";
+          diagStepDesktop.style.color = "#81c784";
+
+          diagStepAuth.innerHTML = "✅ <b>Authentifizierung:</b> Token verifiziert & Handshake bestätigt";
+          diagStepAuth.style.color = "#81c784";
+        } else if (resp.status === 401) {
+          diagStepDesktop.innerHTML = "✅ <b>Desktop-Anwendung:</b> Erreichbar auf Port 58291";
+          diagStepDesktop.style.color = "#81c784";
+
+          diagStepAuth.innerHTML = "❌ <b>Authentifizierung:</b> Ungültiger Token! Bitte Session-Token aus Desktop kopieren.";
+          diagStepAuth.style.color = "#ef5350";
+        } else {
+          diagStepDesktop.innerHTML = `⚠️ <b>Desktop-Anwendung:</b> HTTP Status ${resp.status}`;
+          diagStepDesktop.style.color = "#ffa726";
+        }
+      } catch (err) {
+        diagStepDesktop.innerHTML = "❌ <b>Desktop-Anwendung:</b> Nicht erreichbar (Ist er-audio-tool gestartet?)";
+        diagStepDesktop.style.color = "#ef5350";
+        diagStepAuth.innerHTML = "❌ <b>Authentifizierung:</b> Verbindung verweigert (ECONNREFUSED)";
+        diagStepAuth.style.color = "#ef5350";
+      }
+
+      // Step 4: TabCapture API availability
+      if (chrome && chrome.tabCapture && typeof chrome.tabCapture.capture === "function") {
+        diagStepCapture.innerHTML = "✅ <b>Browser Audio Capture:</b> tabCapture API verfügbar";
+        diagStepCapture.style.color = "#81c784";
+      } else {
+        diagStepCapture.innerHTML = "❌ <b>Browser Audio Capture:</b> tabCapture API nicht verfügbar";
+        diagStepCapture.style.color = "#ef5350";
+      }
+
+      // Step 5: Target tab ready
+      if (selectedTabId) {
+        const chosen = availableTabs.find(t => t.id === selectedTabId);
+        const titleStr = chosen ? (chosen.title || "Tab " + chosen.id).substring(0, 30) : "ID: " + selectedTabId;
+        diagStepTab.innerHTML = `✅ <b>Ausgewählter Tab:</b> ${titleStr}`;
+        diagStepTab.style.color = "#81c784";
+
+        // Also notify desktop server immediately if authenticated
+        if (desktopData && desktopData.authenticated) {
+          try {
+            await fetch("http://127.0.0.1:58291/api/tab_selected", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: token, tabInfo: chosen }),
+            });
+          } catch (e) {}
+        }
+      } else {
+        diagStepTab.innerHTML = "⚠️ <b>Ausgewählter Tab:</b> Keiner ausgewählt. Bitte unten anklicken.";
+        diagStepTab.style.color = "#ffa726";
+      }
+
+      // Summary
+      if (desktopData && desktopData.authenticated && selectedTabId) {
+        diagSummary.innerHTML = "✨ <b>Status:</b> Alles betriebsbereit! Aufnahme kann gestartet werden.";
+        diagSummary.style.color = "#4db6ac";
+      } else if (!desktopData || !desktopData.authenticated) {
+        diagSummary.innerHTML = "ℹ️ <b>Hinweis:</b> Bitte sicherstellen, dass er-audio-tool läuft und der richtige Token eingetragen ist.";
+        diagSummary.style.color = "#ffb74d";
+      } else {
+        diagSummary.innerHTML = "ℹ️ <b>Hinweis:</b> Wähle noch einen Tab aus der Liste aus.";
+        diagSummary.style.color = "#ffb74d";
+      }
+    });
+  }
 });

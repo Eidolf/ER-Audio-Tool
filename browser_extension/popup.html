@@ -105,6 +105,24 @@
 
   <button id="btnToggle" class="btn-start">Record Selected Tab</button>
 
+  <div style="margin-top: 10px; display: flex; gap: 6px;">
+    <button id="btnTestConnection" class="btn-refresh" style="width: 100%; padding: 6px; font-weight: bold; background: #263238; border-color: #546e7a; color: #80cbc4;">
+      🔌 Verbindung testen
+    </button>
+  </div>
+
+  <div id="diagContainer" style="display: none; margin-top: 10px; padding: 8px 10px; background: #212529; border: 1px solid #37474f; border-radius: 4px; font-size: 10px; line-height: 1.45;">
+    <div style="font-weight: bold; color: #80deea; margin-bottom: 4px; border-bottom: 1px solid #37474f; padding-bottom: 2px;">
+      Diagnose & Verbindungsprüfung:
+    </div>
+    <div id="diagStepExtension">⏳ Browser Add-In geladen</div>
+    <div id="diagStepDesktop">⏳ Desktop-Anwendung erreichbar</div>
+    <div id="diagStepAuth">⏳ Authentifizierung & Kommunikation</div>
+    <div id="diagStepCapture">⏳ Tab Audio Capture API</div>
+    <div id="diagStepTab">⏳ Ausgewählter Tab bereit</div>
+    <div id="diagSummary" style="margin-top: 6px; font-weight: bold; color: #b0bec5;"></div>
+  </div>
+
   <p style="margin-top: 10px; font-size: 9px; color: #607d8b; line-height: 1.3;">
     🔒 Uses explicit tabCapture API. Audio is streamed exclusively over local loopback (127.0.0.1).
   </p>

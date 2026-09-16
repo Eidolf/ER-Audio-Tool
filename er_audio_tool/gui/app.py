@@ -50,8 +50,8 @@ class ErAudioApp(ctk.CTk):
         ctk.set_appearance_mode(self.cfg.theme)
         ctk.set_default_color_theme("dark-blue")
         self.title(self.i18n.t("app_title"))
-        self.geometry("1120x760")
-        self.minsize(980, 680)
+        self.geometry("1240x840")
+        self.minsize(1060, 720)
 
         # Set window icon
         self._assets_dir = Path(__file__).resolve().parent.parent.parent / "assets"
@@ -149,30 +149,51 @@ class ErAudioApp(ctk.CTk):
 
     def _attach_sidebar_wheel_scrolling(self):
         """Attaches reliable mouse-wheel routing to the sidebar canvas and all child controls."""
-        def _on_sidebar_mousewheel(event):
+        def _is_descendant(widget, parent):
+            while widget:
+                if widget == parent:
+                    return True
+                widget = getattr(widget, "master", None)
+            return False
+
+        def _on_global_mousewheel(event):
             try:
+                # Find widget under mouse cursor
+                x, y = event.x_root, event.y_root
+                hovered = self.winfo_containing(x, y)
+                if not hovered or not _is_descendant(hovered, self.sidebar_frame):
+                    return
+
                 canvas = getattr(self.sidebar_frame, "_parent_canvas", None)
                 if not canvas or not canvas.winfo_exists():
                     return
-                # On Windows event.delta is typically multiples of 120
+
                 if sys.platform.startswith("win"):
-                    delta = -int(event.delta / 60)
-                elif event.num == 4:
+                    # On Windows event.delta is typically multiples of 120 or touchpad gestures
+                    raw_delta = getattr(event, "delta", 0)
+                    delta = -int(raw_delta / 40) if raw_delta != 0 else 0
+                    if delta == 0 and raw_delta > 0:
+                        delta = -1
+                    elif delta == 0 and raw_delta < 0:
+                        delta = 1
+                elif getattr(event, "num", None) == 4:
                     delta = -2
-                elif event.num == 5:
+                elif getattr(event, "num", None) == 5:
                     delta = 2
                 else:
-                    delta = -int(getattr(event, "delta", 0)) or 1
-                canvas.yview_scroll(delta, "units")
+                    raw_delta = getattr(event, "delta", 0)
+                    delta = -int(raw_delta) if raw_delta != 0 else 1
+
+                if delta != 0:
+                    canvas.yview_scroll(delta, "units")
             except Exception:
                 pass
 
-        self._sidebar_wheel_handler = _on_sidebar_mousewheel
+        self._sidebar_wheel_handler = _on_global_mousewheel
         try:
-            canv = getattr(self.sidebar_frame, "_parent_canvas", self.sidebar_frame)
-            canv.bind("<MouseWheel>", _on_sidebar_mousewheel, add="+")
-            canv.bind("<Button-4>", _on_sidebar_mousewheel, add="+")
-            canv.bind("<Button-5>", _on_sidebar_mousewheel, add="+")
+            self.bind_all("<MouseWheel>", _on_global_mousewheel, add="+")
+            self.bind_all("<Button-4>", _on_global_mousewheel, add="+")
+            self.bind_all("<Button-5>", _on_global_mousewheel, add="+")
         except Exception:
             pass
 
@@ -335,7 +356,21 @@ class ErAudioApp(ctk.CTk):
 
         mode_card = ctk.CTkFrame(f, fg_color="#1b2831", corner_radius=6)
         mode_card.pack(fill="x", pady=(0, 12))
-        ctk.CTkLabel(mode_card, text=mode_hdr, font=ctk.CTkFont(size=14, weight="bold"), text_color="#80deea").pack(anchor="w", padx=12, pady=(8, 2))
+        
+        m_row = ctk.CTkFrame(mode_card, fg_color="transparent")
+        m_row.pack(fill="x", padx=12, pady=(8, 2))
+        ctk.CTkLabel(m_row, text=mode_hdr, font=ctk.CTkFont(size=14, weight="bold"), text_color="#80deea").pack(side="left")
+        if self._current_view_name == "rec_browser":
+            ctk.CTkButton(
+                m_row,
+                text="🔌 " + self.i18n.t("btn_test_conn"),
+                width=130,
+                height=26,
+                fg_color="#00897b",
+                hover_color="#00695c",
+                command=self._on_test_browser_connection_clicked,
+            ).pack(side="right")
+
         ctk.CTkLabel(mode_card, text=mode_desc, font=ctk.CTkFont(size=11), text_color="#b0bec5").pack(anchor="w", padx=12, pady=(0, 8))
 
         # Source Selection
@@ -453,6 +488,16 @@ class ErAudioApp(ctk.CTk):
         self.diag_btn = ctk.CTkButton(top_bar, text=self.i18n.t("btn_run_tests"), width=160, command=self._on_run_diagnostics)
         self.diag_btn.pack(side="left")
 
+        self.diag_capture_btn = ctk.CTkButton(
+            top_bar,
+            text=self.i18n.t("btn_test_capture"),
+            fg_color="#00897b",
+            hover_color="#00695c",
+            width=160,
+            command=self._on_run_capture_test_only,
+        )
+        self.diag_capture_btn.pack(side="left", padx=10)
+
         self.diag_status_lbl = ctk.CTkLabel(top_bar, text="Ready", text_color="#90a4ae", font=ctk.CTkFont(size=12))
         self.diag_status_lbl.pack(side="left", padx=15)
 
@@ -526,7 +571,18 @@ class ErAudioApp(ctk.CTk):
         # Live Extension Verification Status Card
         conn_card = ctk.CTkFrame(f, fg_color="#1a2327", corner_radius=8)
         conn_card.pack(fill="x", pady=10)
-        ctk.CTkLabel(conn_card, text="Connection & Selected Tab Verification", font=ctk.CTkFont(size=14, weight="bold"), text_color="#80deea").pack(anchor="w", padx=15, pady=(12, 6))
+        
+        c_hdr = ctk.CTkFrame(conn_card, fg_color="transparent")
+        c_hdr.pack(fill="x", padx=15, pady=(12, 6))
+        ctk.CTkLabel(c_hdr, text="Connection & Selected Tab Verification", font=ctk.CTkFont(size=14, weight="bold"), text_color="#80deea").pack(side="left")
+        ctk.CTkButton(
+            c_hdr,
+            text="🔌 " + self.i18n.t("btn_test_conn"),
+            width=140,
+            fg_color="#00897b",
+            hover_color="#00695c",
+            command=self._on_test_browser_connection_clicked,
+        ).pack(side="right")
 
         ext_state = "Connected & Authenticated" if self.browser_server.is_authenticated else ("Connected (Unauthenticated)" if self.browser_server.is_connected else "Waiting for Extension Connection")
         ext_color = "#4db6ac" if self.browser_server.is_authenticated else ("#ffb74d" if self.browser_server.is_connected else "#90a4ae")
@@ -534,9 +590,12 @@ class ErAudioApp(ctk.CTk):
 
         v_inner = ctk.CTkFrame(conn_card, fg_color="transparent")
         v_inner.pack(fill="x", padx=15, pady=(0, 10))
-        ctk.CTkLabel(v_inner, text=f"• Extension Handshake: {ext_state}", text_color=ext_color, font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", pady=2)
-        ctk.CTkLabel(v_inner, text=f"• Selected Browser Tab: {tab_info_str}", text_color="#eceff1", font=ctk.CTkFont(size=11)).pack(anchor="w", pady=2)
-        ctk.CTkLabel(v_inner, text=f"• Received Audio Frames: {self.browser_server.received_frames_count}", text_color="#b0bec5", font=ctk.CTkFont(size=11)).pack(anchor="w", pady=2)
+        self.lbl_ext_handshake = ctk.CTkLabel(v_inner, text=f"• Extension Handshake: {ext_state}", text_color=ext_color, font=ctk.CTkFont(size=12, weight="bold"))
+        self.lbl_ext_handshake.pack(anchor="w", pady=2)
+        self.lbl_ext_tab = ctk.CTkLabel(v_inner, text=f"• Selected Browser Tab: {tab_info_str}", text_color="#eceff1", font=ctk.CTkFont(size=11))
+        self.lbl_ext_tab.pack(anchor="w", pady=2)
+        self.lbl_ext_frames = ctk.CTkLabel(v_inner, text=f"• Received Audio Frames: {self.browser_server.received_frames_count}", text_color="#b0bec5", font=ctk.CTkFont(size=11))
+        self.lbl_ext_frames.pack(anchor="w", pady=2)
 
         # Setup Instructions Guide
         guide_card = ctk.CTkFrame(f, fg_color="#1e272c", corner_radius=8)
@@ -1129,10 +1188,84 @@ class ErAudioApp(ctk.CTk):
                     self.diag_status_lbl.configure(text="✓ Diagnostics Complete", text_color="#4db6ac")
                 if hasattr(self, "diag_btn"):
                     self.diag_btn.configure(state="normal")
+                if hasattr(self, "diag_capture_btn"):
+                    self.diag_capture_btn.configure(state="normal")
 
             self.after(0, update_ui)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _on_run_capture_test_only(self):
+        if not hasattr(self, "diag_box"):
+            return
+        self.diag_box.delete("1.0", "end")
+        self.diag_box.insert("end", "Prüfe Audio Capture & WASAPI Loopback Endpunkte...\n\n")
+        if hasattr(self, "diag_capture_btn"):
+            self.diag_capture_btn.configure(state="disabled")
+        if hasattr(self, "diag_status_lbl"):
+            self.diag_status_lbl.configure(text="Teste Audio Capture...", text_color="#ffb74d")
+        if hasattr(self, "diag_progress"):
+            self.diag_progress.set(0.3)
+
+        def worker():
+            items = DiagnosticRunner.run_audio_capture_test()
+
+            def update_ui():
+                self.diag_box.delete("1.0", "end")
+                self.diag_box.insert("end", "=== Audio Capture & Endpunkt-Diagnosetest ===\n\n")
+                all_ok = True
+                for it in items:
+                    symbol = "✓" if it.status == "PASSED" else ("⚠" if it.status == "WARNING" else "✗")
+                    if it.status != "PASSED":
+                        all_ok = False
+                    self.diag_box.insert("end", f"[{symbol} {it.status}] {it.name}\n  Details: {it.details}\n")
+                    if it.recommendation:
+                        self.diag_box.insert("end", f"  Empfehlung: {it.recommendation}\n")
+                    self.diag_box.insert("end", "\n")
+
+                if hasattr(self, "diag_progress"):
+                    self.diag_progress.set(1.0)
+                if hasattr(self, "diag_status_lbl"):
+                    stat_txt = "✓ Capture-Test bestanden" if all_ok else "⚠ Capture-Test mit Hinweisen"
+                    stat_col = "#4db6ac" if all_ok else "#ffb74d"
+                    self.diag_status_lbl.configure(text=stat_txt, text_color=stat_col)
+                if hasattr(self, "diag_capture_btn"):
+                    self.diag_capture_btn.configure(state="normal")
+
+            self.after(0, update_ui)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_test_browser_connection_clicked(self):
+        token = self.browser_server.auth_token if self.browser_server else ""
+        ext_state = "Connected & Authenticated" if (self.browser_server and self.browser_server.is_authenticated) else ("Connected (Unauthenticated)" if (self.browser_server and self.browser_server.is_connected) else "Waiting for Extension Connection")
+        ext_color = "#4db6ac" if (self.browser_server and self.browser_server.is_authenticated) else ("#ffb74d" if (self.browser_server and self.browser_server.is_connected) else "#90a4ae")
+        tab_info_str = f"{self.browser_server.selected_tab.title} (Tab ID: {self.browser_server.selected_tab.tab_id})" if (self.browser_server and self.browser_server.selected_tab) else "None selected yet (Open extension popup to pick a tab)"
+
+        if hasattr(self, "lbl_ext_handshake"):
+            self.lbl_ext_handshake.configure(text=f"• Extension Handshake: {ext_state}", text_color=ext_color)
+        if hasattr(self, "lbl_ext_tab"):
+            self.lbl_ext_tab.configure(text=f"• Selected Browser Tab: {tab_info_str}")
+        if hasattr(self, "lbl_ext_frames"):
+            frames = self.browser_server.received_frames_count if self.browser_server else 0
+            self.lbl_ext_frames.configure(text=f"• Received Audio Frames: {frames}")
+
+        if self.browser_server and self.browser_server.is_authenticated:
+            messagebox.showinfo(
+                self.i18n.t("app_title"),
+                f"✓ Browser-Erweiterung ist erfolgreich verbunden und authentifiziert!\n\n"
+                f"Aktiver Tab: {tab_info_str}\n"
+                f"Empfangene Frames: {self.browser_server.received_frames_count}",
+            )
+        else:
+            messagebox.showinfo(
+                self.i18n.t("app_title"),
+                f"Status der Browser-Kopplung:\n\n"
+                f"• Handshake: {ext_state}\n"
+                f"• Server lauscht auf: 127.0.0.1:58291\n"
+                f"• Token bereitgestellt: Ja\n\n"
+                f"Hinweis: Bitte öffnen Sie das Erweiterungs-Popup im Browser und klicken Sie dort auf 'Verbindung testen'.",
+            )
 
     def _on_run_analysis(self):
         p = self.ana_file_entry.get().strip()
