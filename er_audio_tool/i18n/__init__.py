@@ -102,6 +102,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "level_rms": "RMS: {val:.1f} dBFS",
         "clipping_detected": "CLIPPING DETECTED! Reduce volume.",
         "no_signal_warning": "No audio signal detected. Verify playback on selected device.",
+        "btn_monitor_start": "Start Input Monitor",
+        "btn_monitor_stop": "Stop Input Monitor",
+        "monitor_active_hint": "Input monitor active: Level bars show incoming audio without saving to disk.",
         
         # Legal & Privacy
         "legal_notice": "Notice: Only record content you have authorization to capture. er-audio-tool does not bypass protected media restrictions.",
@@ -259,6 +262,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "level_rms": "RMS: {val:.1f} dBFS",
         "clipping_detected": "ÜBERSTEUERUNG (Clipping)! Bitte Lautstärke verringern.",
         "no_signal_warning": "Kein Audiosignal empfangen. Bitte Wiedergabe am ausgewählten Gerät prüfen.",
+        "btn_monitor_start": "Pegel-Vorschau testen",
+        "btn_monitor_stop": "Pegel-Vorschau stoppen",
+        "monitor_active_hint": "Eingangs-Monitor aktiv: Zeigt Live-Pegel an ohne Datei aufzunehmen.",
         
         # Legal & Privacy
         "legal_notice": "Hinweis: Bitte beachten Sie Urheberrechtsgesetze. er-audio-tool umgeht keinen Kopierschutz.",

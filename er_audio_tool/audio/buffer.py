@@ -85,24 +85,39 @@ class AudioBuffer:
             self._buffer.extend(mono.tolist())
 
     def get_levels(self) -> tuple[float, float, bool]:
-        """Returns (peak_db, rms_db, is_clipping)."""
+        """Returns (peak_db, rms_db, is_clipping) with decay."""
         with self._lock:
             clip = self._clipping_detected
             self._clipping_detected = False
-            return self._latest_peak_db, self._latest_rms_db, clip
+            pk = self._latest_peak_db
+            rms = self._latest_rms_db
+            # Smoothly decay meter levels towards silence (-100 dB)
+            self._latest_peak_db = max(-100.0, self._latest_peak_db - 3.0)
+            self._latest_rms_db = max(-100.0, self._latest_rms_db - 3.0)
+            return pk, rms, clip
 
     def get_stereo_levels(self) -> tuple[float, float, float, float, bool, int]:
-        """Returns (peak_l_db, peak_r_db, peak_db, rms_db, is_clipping, frame_count)."""
+        """Returns (peak_l_db, peak_r_db, peak_db, rms_db, is_clipping, frame_count) with decay."""
         with self._lock:
             clip = self._clipping_detected
             self._clipping_detected = False
+            pk_l = self._peak_l_db
+            pk_r = self._peak_r_db
+            pk = self._latest_peak_db
+            rms = self._latest_rms_db
+            frames = self._frame_count
+            # Smoothly decay meter levels by ~3 dB per 50ms polling cycle
+            self._peak_l_db = max(-100.0, self._peak_l_db - 3.0)
+            self._peak_r_db = max(-100.0, self._peak_r_db - 3.0)
+            self._latest_peak_db = max(-100.0, self._latest_peak_db - 3.0)
+            self._latest_rms_db = max(-100.0, self._latest_rms_db - 3.0)
             return (
-                self._peak_l_db,
-                self._peak_r_db,
-                self._latest_peak_db,
-                self._latest_rms_db,
+                pk_l,
+                pk_r,
+                pk,
+                rms,
                 clip,
-                self._frame_count,
+                frames,
             )
 
     def get_recent_waveform(self, num_points: int = 400) -> np.ndarray:

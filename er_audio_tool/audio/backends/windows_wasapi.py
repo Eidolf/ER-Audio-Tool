@@ -229,12 +229,13 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
 
                     # FFmpeg command for native Windows WASAPI loopback capture
                     # Audio output format: 32-bit float Little-Endian raw PCM, stereo, target sample rate
-                    # ffmpeg -y -f wasapi -i audio="..." or -i default -vn -f f32le -ar 48000 -ac 2 -
+                    # If device is not default, try targeting device by name or default
+                    input_target = "default" if device.is_default else f"audio={clean_name}"
                     ffmpeg_cmd = [
                         ffmpeg_path,
                         "-y",
                         "-f", "wasapi",
-                        "-i", "default",
+                        "-i", input_target,
                         "-vn",
                         "-f", "f32le",
                         "-ar", str(target_sr),

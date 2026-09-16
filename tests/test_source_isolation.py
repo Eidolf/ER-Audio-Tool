@@ -87,3 +87,34 @@ def test_synthetic_frequency_fixture_isolation():
     assert abs(dominant_freq(browser_audio) - 1200.0) < 5.0
     assert abs(dominant_freq(sys_audio) - 880.0) < 5.0
     assert abs(dominant_freq(mic_audio) - 440.0) < 5.0
+
+
+def test_audio_buffer_monitor_mode_and_level_decay():
+    """Verify that AudioBuffer updates levels immediately in monitor mode and smoothly decays."""
+    buf = AudioBuffer()
+    session_id = "monitor_test_123"
+    buf.set_active_session(session_id)
+
+    # Initially at floor
+    pk_l, pk_r, pk, rms, clip, frames = buf.get_stereo_levels()
+    assert pk <= -95.0
+    assert frames == 0
+
+    # Push signal during monitoring
+    t = np.linspace(0, 0.05, 2400, endpoint=False, dtype=np.float32)
+    tone = np.sin(2 * np.pi * 1000 * t) * 0.7
+    stereo = np.column_stack((tone, tone))
+    buf.push(stereo, session_id=session_id)
+
+    # Meter should deflect immediately
+    pk_l1, pk_r1, pk1, rms1, clip1, frames1 = buf.get_stereo_levels()
+    assert pk1 > -10.0
+    assert pk_l1 > -10.0
+    assert pk_r1 > -10.0
+    assert frames1 == 2400
+
+    # Next query without new data should show decay (~3 dB lower)
+    pk_l2, pk_r2, pk2, rms2, clip2, frames2 = buf.get_stereo_levels()
+    assert pk2 < pk1
+    assert pk_l2 < pk_l1
+    assert pk_r2 < pk_r1

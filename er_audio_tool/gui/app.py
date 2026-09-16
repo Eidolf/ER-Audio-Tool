@@ -73,6 +73,7 @@ class ErAudioApp(ctk.CTk):
         self._record_start_time = 0.0
         self._elapsed_paused_time = 0.0
         self._pause_start_time = 0.0
+        self._monitoring_active = False
 
         # If codecs are missing, start directly on Setup & Codecs so user can setup immediately
         if not self.codec_manager.get_active_ffmpeg():
@@ -285,6 +286,8 @@ class ErAudioApp(ctk.CTk):
         self._show_view(self._current_view_name)
 
     def _show_view(self, view_id: str):
+        if self._monitoring_active:
+            self._stop_monitoring()
         self._current_view_name = view_id
         for w in self.content_frame.winfo_children():
             w.destroy()
@@ -421,10 +424,25 @@ class ErAudioApp(ctk.CTk):
         self.rec_dir_entry.pack(side="left", padx=10)
         ctk.CTkButton(dir_row, text=self.i18n.t("btn_browse"), width=90, command=self._on_browse_rec_dir).pack(side="left")
 
-        # Live Stereo Level Meter Card
+        # Live Stereo Level Meter Card with Monitor Toggle
         meter_card = ctk.CTkFrame(f, fg_color="#222222", corner_radius=8)
         meter_card.pack(fill="x", pady=15, padx=2)
-        ctk.CTkLabel(meter_card, text=self.i18n.t("level_title"), font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=15, pady=(10, 4))
+
+        meter_hdr = ctk.CTkFrame(meter_card, fg_color="transparent")
+        meter_hdr.pack(fill="x", padx=15, pady=(10, 4))
+        ctk.CTkLabel(meter_hdr, text=self.i18n.t("level_title"), font=ctk.CTkFont(weight="bold")).pack(side="left")
+
+        # Live Monitor Toggle Button in meter card
+        self.btn_monitor = ctk.CTkButton(
+            meter_hdr,
+            text="🎧 " + self.i18n.t("btn_monitor_stop" if self._monitoring_active else "btn_monitor_start"),
+            width=170,
+            height=26,
+            fg_color="#00695c" if self._monitoring_active else "#37474f",
+            hover_color="#004d40" if self._monitoring_active else "#455a64",
+            command=self._on_toggle_monitor_clicked,
+        )
+        self.btn_monitor.pack(side="right")
 
         # Left / Right Stereo Bars
         self.meter_l = ctk.CTkProgressBar(meter_card, height=10)
@@ -1058,7 +1076,77 @@ class ErAudioApp(ctk.CTk):
             self.ren_midi_entry.delete(0, "end")
             self.ren_midi_entry.insert(0, f)
 
+    def _on_toggle_monitor_clicked(self):
+        """Toggles real-time audio input level monitoring without recording to disk."""
+        if self._monitoring_active:
+            self._stop_monitoring()
+        else:
+            self._start_monitoring()
+
+    def _start_monitoring(self):
+        curr = self.state_machine.current_state
+        if curr != AppState.IDLE:
+            return
+
+        backend = self.device_manager.get_backend_for_source_type(self._current_view_name)
+        self._active_backend = backend
+
+        selected_name = self.source_combo.get() if hasattr(self, "source_combo") else ""
+        dev = next((d for d in self.devices if d.name == selected_name), self.devices[0] if self.devices else None)
+        if not dev:
+            messagebox.showerror(self.i18n.t("error"), "No audio device selected for monitoring.")
+            return
+
+        import uuid
+        self._current_session_id = f"monitor_{uuid.uuid4()}"
+        self.audio_buffer.set_active_session(self._current_session_id)
+
+        try:
+            backend.start_capture(
+                dev,
+                self.cfg.sample_rate,
+                self.cfg.channels,
+                self._on_monitor_data_received,
+            )
+            self._monitoring_active = True
+            if hasattr(self, "btn_monitor") and self.btn_monitor.winfo_exists():
+                self.btn_monitor.configure(
+                    text="■ " + self.i18n.t("btn_monitor_stop"),
+                    fg_color="#00695c",
+                    hover_color="#004d40",
+                )
+            self.status_label.configure(text=self.i18n.t("monitor_active_hint"), text_color="#80deea")
+        except Exception as ex:
+            self._monitoring_active = False
+            messagebox.showerror(self.i18n.t("error"), f"Failed to start input monitor:\n\n{ex}")
+
+    def _stop_monitoring(self):
+        if not self._monitoring_active:
+            return
+        self._monitoring_active = False
+        try:
+            if self._active_backend:
+                self._active_backend.stop_capture()
+        except Exception:
+            pass
+        if hasattr(self, "btn_monitor") and self.btn_monitor.winfo_exists():
+            self.btn_monitor.configure(
+                text="🎧 " + self.i18n.t("btn_monitor_start"),
+                fg_color="#37474f",
+                hover_color="#455a64",
+            )
+        if self.state_machine.current_state == AppState.IDLE:
+            self.status_label.configure(text=self.i18n.t("ready"), text_color="#b0bec5")
+
+    def _on_monitor_data_received(self, data: np.ndarray):
+        if self._monitoring_active and self.state_machine.current_state == AppState.IDLE:
+            self.audio_buffer.push(data, session_id=self._current_session_id)
+
     def _on_record_clicked(self):
+        # If input monitoring is running, stop it cleanly before beginning capture to disk
+        if self._monitoring_active:
+            self._stop_monitoring()
+
         curr = self.state_machine.current_state
         if curr == AppState.IDLE:
             self.state_machine.transition_to(AppState.PREPARING)
@@ -1684,8 +1772,10 @@ class ErAudioApp(ctk.CTk):
                     self.codec_manager.delete_local_codecs()
                 # If ans is True (Yes): keep codecs
 
-        # Stop active capture if running
+        # Stop active capture or monitoring if running
         try:
+            if self._monitoring_active:
+                self._stop_monitoring()
             if self.state_machine.current_state in (AppState.RECORDING, AppState.PAUSED):
                 self._active_backend.stop_capture()
         except Exception:
