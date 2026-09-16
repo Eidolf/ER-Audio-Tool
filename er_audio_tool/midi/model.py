@@ -19,7 +19,7 @@ class NoteEvent:
 
 
 class MidiExporter:
-    """Writes a list of NoteEvents into a valid Standard MIDI File (SMF Format 0)."""
+    """Writes a list of NoteEvents into Standard MIDI File (SMF Format 0 or Format 1 multi-track)."""
 
     TICKS_PER_BEAT = 480
 
@@ -30,10 +30,31 @@ class MidiExporter:
         output_path: Path | str,
         bpm: float = 120.0,
         track_programs: dict[int, int] | None = None,  # channel -> General MIDI program (0-127)
+        multitrack: bool = None,  # None = auto-detect, True = force Format 1, False = force Format 0
     ) -> Path:
+        """Export notes to MIDI file. Auto-detects Format 1 (multi-track) if multiple channels present."""
         p = Path(output_path)
         p.parent.mkdir(parents=True, exist_ok=True)
 
+        # Auto-detect if multi-track should be used
+        if multitrack is None:
+            unique_channels = set(n.channel for n in notes)
+            multitrack = len(unique_channels) > 1
+
+        if multitrack:
+            return cls._export_multitrack(notes, p, bpm, track_programs)
+        else:
+            return cls._export_single_track(notes, p, bpm, track_programs)
+
+    @classmethod
+    def _export_single_track(
+        cls,
+        notes: list[NoteEvent],
+        output_path: Path,
+        bpm: float,
+        track_programs: dict[int, int] | None,
+    ) -> Path:
+        """Export as SMF Format 0 (single track, all channels merged)."""
         # Microseconds per quarter note
         tempo_us = int(60_000_000 / bpm)
 
@@ -100,11 +121,115 @@ class MidiExporter:
         track_chunk.extend(struct.pack(">I", len(track_bytes)))
         track_chunk.extend(track_bytes)
 
-        with open(p, "wb") as f:
+        with open(output_path, "wb") as f:
             f.write(header)
             f.write(track_chunk)
 
-        return p
+        return output_path
+
+    @classmethod
+    def _export_multitrack(
+        cls,
+        notes: list[NoteEvent],
+        output_path: Path,
+        bpm: float,
+        track_programs: dict[int, int] | None,
+    ) -> Path:
+        """Export as SMF Format 1 (multi-track, one track per channel)."""
+        tempo_us = int(60_000_000 / bpm)
+        ticks_per_second = (cls.TICKS_PER_BEAT * bpm) / 60.0
+
+        # Group notes by channel
+        notes_by_channel: dict[int, list[NoteEvent]] = {}
+        for n in notes:
+            if n.channel not in notes_by_channel:
+                notes_by_channel[n.channel] = []
+            notes_by_channel[n.channel].append(n)
+
+        # Sort channels (drums on channel 9 last, others ascending)
+        sorted_channels = sorted(notes_by_channel.keys(), key=lambda ch: (ch == 9, ch))
+
+        all_tracks = []
+
+        # Track 0: Tempo track (no notes, just tempo meta event)
+        tempo_track = bytearray()
+        tempo_track.extend(cls._write_varlen(0))
+        tempo_track.extend(b"\xFF\x51\x03")
+        tempo_track.extend(struct.pack(">I", tempo_us)[1:])
+        # Track Name (optional)
+        track_name = "Master Tempo"
+        tempo_track.extend(cls._write_varlen(0))
+        tempo_track.extend(b"\xFF\x03")
+        tempo_track.extend(cls._write_varlen(len(track_name)))
+        tempo_track.extend(track_name.encode("ascii"))
+        # End of Track
+        tempo_track.extend(cls._write_varlen(0))
+        tempo_track.extend(b"\xFF\x2F\x00")
+        all_tracks.append(tempo_track)
+
+        # Track 1..N: One track per channel
+        for ch in sorted_channels:
+            channel_notes = notes_by_channel[ch]
+            track_bytes = bytearray()
+
+            # Track Name Meta Event
+            if ch == 9:
+                track_name = "Drums"
+            elif track_programs and ch in track_programs:
+                prog = track_programs[ch]
+                track_name = f"Channel {ch} (GM {prog})"
+            else:
+                track_name = f"Channel {ch}"
+
+            track_bytes.extend(cls._write_varlen(0))
+            track_bytes.extend(b"\xFF\x03")
+            track_bytes.extend(cls._write_varlen(len(track_name)))
+            track_bytes.extend(track_name.encode("ascii"))
+
+            # Program Change at tick 0
+            if track_programs and ch in track_programs:
+                track_bytes.extend(cls._write_varlen(0))
+                track_bytes.extend(bytes([0xC0 | (ch & 0x0F), track_programs[ch] & 0x7F]))
+
+            # Build note events for this channel
+            events = []
+            for n in channel_notes:
+                start_tick = int(n.start_time * ticks_per_second)
+                end_tick = int(n.end_time * ticks_per_second)
+                events.append((start_tick, 0x90 | (ch & 0x0F), n.pitch, n.velocity))
+                events.append((end_tick, 0x80 | (ch & 0x0F), n.pitch, 0))
+
+            # Sort events by time
+            events.sort(key=lambda e: (e[0], (e[1] & 0xF0) == 0x80))
+
+            last_tick = 0
+            for e in events:
+                tick = e[0]
+                delta = max(0, tick - last_tick)
+                last_tick = tick
+                track_bytes.extend(cls._write_varlen(delta))
+                track_bytes.extend(bytes([e[1], e[2] & 0x7F, e[3] & 0x7F]))
+
+            # End of Track
+            track_bytes.extend(cls._write_varlen(0))
+            track_bytes.extend(b"\xFF\x2F\x00")
+            all_tracks.append(track_bytes)
+
+        # Write MIDI file
+        # Header: Format 1, N tracks, ticks per beat
+        num_tracks = len(all_tracks)
+        header = bytearray()
+        header.extend(b"MThd")
+        header.extend(struct.pack(">IHHH", 6, 1, num_tracks, cls.TICKS_PER_BEAT))
+
+        with open(output_path, "wb") as f:
+            f.write(header)
+            for track_data in all_tracks:
+                f.write(b"MTrk")
+                f.write(struct.pack(">I", len(track_data)))
+                f.write(track_data)
+
+        return output_path
 
     @staticmethod
     def _write_varlen(val: int) -> bytes:
