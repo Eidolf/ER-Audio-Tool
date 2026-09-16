@@ -39,7 +39,25 @@ jobs:
         pip install -e .[dev,full]
         pip install pyinstaller>=6.0
 
+    - name: Determine Version from Tag
+      id: ver
+      shell: bash
+      run: |
+        if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+          RAW_TAG="${{ github.event.inputs.tag_name }}"
+        elif [ -n "${GITHUB_REF#refs/tags/}" ] && [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          RAW_TAG="${GITHUB_REF#refs/tags/}"
+        else
+          RAW_TAG=$(git describe --tags --always 2>/dev/null || echo "1.3.1")
+        fi
+        CLEAN_VER="${RAW_TAG#v}"
+        echo "version=${CLEAN_VER}" >> $GITHUB_OUTPUT
+        echo "${CLEAN_VER}" > _version.txt
+        echo "Building version: ${CLEAN_VER}"
+
     - name: Build with PyInstaller
+      env:
+        APP_VERSION: ${{ steps.ver.outputs.version }}
       run: |
         pyinstaller er_audio_tool.spec --clean --noconfirm
 

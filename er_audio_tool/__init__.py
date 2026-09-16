@@ -1,3 +1,3 @@
 """er-audio-tool package initialization."""
-__version__ = "1.0.0"
+from er_audio_tool.version import get_version, __version__
 __author__ = "Eidolf"

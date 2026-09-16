@@ -87,9 +87,10 @@ class AboutDialog(ctk.CTkToplevel):
         body.place(relx=0.5, rely=0.27, anchor="n")
 
         # version
+        from er_audio_tool.version import get_version
         ctk.CTkLabel(
             body,
-            text="Version 1.0.0 (2025-06-15)",
+            text=f"Version {get_version()}",
             font=("Segoe UI", 10),
             text_color=TEXT_SUB
         ).pack(pady=(4, 12))

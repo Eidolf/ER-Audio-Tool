@@ -8,6 +8,7 @@ import threading
 from dataclasses import dataclass
 from typing import Callable, Optional
 import numpy as np
+from er_audio_tool.version import get_version
 
 
 logger = logging.getLogger("er_audio_tool.browser")
@@ -134,7 +135,7 @@ class BrowserServer:
 
             resp_data = {
                 "ok": True,
-                "desktop_version": "1.0.0",
+                "desktop_version": get_version(),
                 "app_name": "er-audio-tool",
                 "authenticated": token_valid,
                 "token_provided": bool(token),
@@ -160,7 +161,7 @@ class BrowserServer:
                 self.on_status_change("Authenticated & Ready")
             await self._send_http_response(writer, 200, {
                 "status": "authenticated",
-                "version": "1.0.0",
+                "version": get_version(),
                 "protocol": "1.0",
             })
             return

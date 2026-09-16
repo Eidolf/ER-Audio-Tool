@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "er-audio-tool"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Professional, privacy-conscious desktop audio recorder, analyzer, audio-to-MIDI transcriber, and synthesizer."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -56,6 +56,9 @@ er-audio-tool = "er_audio_tool.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["er_audio_tool*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "er_audio_tool.version.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

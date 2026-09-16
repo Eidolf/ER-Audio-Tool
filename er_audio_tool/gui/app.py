@@ -29,6 +29,7 @@ from er_audio_tool.diagnostics.runner import DiagnosticRunner
 from er_audio_tool.help import get_help_topic
 from er_audio_tool.audio.codecs import get_codec_manager, CODEC_SCOPES
 from er_audio_tool.browser.server import BrowserServer
+from er_audio_tool.version import get_version
 
 
 class ErAudioApp(ctk.CTk):
@@ -110,7 +111,7 @@ class ErAudioApp(ctk.CTk):
 
         self.title_label = ctk.CTkLabel(
             self.header_frame,
-            text="er-audio-tool",
+            text=f"er-audio-tool v{get_version()}",
             font=ctk.CTkFont(size=18, weight="bold"),
             text_color="#4db6ac",
         )
@@ -883,7 +884,7 @@ class ErAudioApp(ctk.CTk):
         f = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         f.pack(expand=True, fill="both", padx=25, pady=20)
 
-        ctk.CTkLabel(f, text="er-audio-tool v1.0.0", font=ctk.CTkFont(size=20, weight="bold"), text_color="#4db6ac").pack(anchor="w", pady=(0, 10))
+        ctk.CTkLabel(f, text=f"er-audio-tool v{get_version()}", font=ctk.CTkFont(size=20, weight="bold"), text_color="#4db6ac").pack(anchor="w", pady=(0, 10))
         abt = (
             "er-audio-tool was originally derived from skillerious/Loopback-Recorder by Robin Doak.\n"
             "The original project is available at https://github.com/skillerious/Loopback-Recorder and is used under the MIT License.\n"

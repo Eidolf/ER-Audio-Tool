@@ -24,6 +24,12 @@ datas = [
     ("browser_extension", "browser_extension"),
 ] + collect_data_files("customtkinter")
 
+# Include _version.txt if present
+import os
+from pathlib import Path
+if Path("_version.txt").exists():
+    datas.append(("_version.txt", "."))
+
 hiddenimports = [
     # GUI
     "customtkinter",
@@ -41,6 +47,7 @@ hiddenimports = [
     "_soundfile_data",
     # Application modules
     "er_audio_tool",
+    "er_audio_tool.version",
     "er_audio_tool.cli",
     "er_audio_tool.core",
     "er_audio_tool.core.config",
