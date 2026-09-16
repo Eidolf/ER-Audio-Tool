@@ -189,66 +189,51 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
         if target_ch == 1:
             candidates.append((1, target_sr, wasapi_settings, "Mono Native"))
 
-        stream_opened = False
-        last_error = None
-        for ch, sr, extra, desc in candidates:
+        # Check if portable or system FFmpeg is available for native WASAPI loopback capture.
+        # FFmpeg uses direct Windows WASAPI loopback (AUDCLNT_STREAMFLAGS_LOOPBACK) identical to OBS Studio.
+        ffmpeg_path = get_codec_manager().get_active_ffmpeg()
+        clean_name = device.name
+        if clean_name.startswith("[System Output] "):
+            clean_name = clean_name[len("[System Output] "):]
+
+        if ffmpeg_path:
             try:
-                self._stream = sd.InputStream(
-                    device=target_device_id,
-                    samplerate=sr,
-                    channels=ch,
-                    callback=sd_callback,
-                    extra_settings=extra,
-                )
-                self._stream.start()
-                stream_opened = True
-                self._negotiated_format = {
-                    "device": device.name,
-                    "endpoint_id": target_device_id,
-                    "flow": "render",
-                    "loopback": True,
-                    "channels": ch,
-                    "sample_rate": sr,
-                    "strategy": desc,
-                }
-                break
-            except Exception as ex:
-                last_error = ex
+                # Target specific audio render device by name or default endpoint
+                # In FFmpeg WASAPI: -i default or -i "audio=<Endpoint Name>"
+                input_targets = []
+                if not device.is_default:
+                    input_targets.append(f"audio={clean_name}")
+                input_targets.append("default")
 
-        if not stream_opened:
-            # Automatic OBS-equivalent Fallback:
-            # If sounddevice (PortAudio) cannot open the render endpoint directly (e.g. -9998 Invalid number of channels),
-            # use the locally bundled/portable FFmpeg which supports native Windows WASAPI loopback out of the box.
-            ffmpeg_path = get_codec_manager().get_active_ffmpeg()
-            if ffmpeg_path:
-                try:
-                    # Clean device name without '[System Output] ' prefix for FFmpeg if needed
-                    clean_name = device.name
-                    if clean_name.startswith("[System Output] "):
-                        clean_name = clean_name[len("[System Output] "):]
+                proc = None
+                for itarget in input_targets:
+                    try:
+                        ffmpeg_cmd = [
+                            ffmpeg_path,
+                            "-y",
+                            "-f", "wasapi",
+                            "-i", itarget,
+                            "-vn",
+                            "-f", "f32le",
+                            "-ar", str(target_sr),
+                            "-ac", str(channels),
+                            "-",
+                        ]
+                        proc = subprocess.Popen(
+                            ffmpeg_cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL,
+                            bufsize=1024 * 64,
+                        )
+                        # Brief check to see if FFmpeg exited immediately
+                        import time
+                        time.sleep(0.04)
+                        if proc.poll() is None:
+                            break
+                    except Exception:
+                        proc = None
 
-                    # FFmpeg command for native Windows WASAPI loopback capture
-                    # Audio output format: 32-bit float Little-Endian raw PCM, stereo, target sample rate
-                    # If device is not default, try targeting device by name or default
-                    input_target = "default" if device.is_default else f"audio={clean_name}"
-                    ffmpeg_cmd = [
-                        ffmpeg_path,
-                        "-y",
-                        "-f", "wasapi",
-                        "-i", input_target,
-                        "-vn",
-                        "-f", "f32le",
-                        "-ar", str(target_sr),
-                        "-ac", str(channels),
-                        "-",
-                    ]
-                    # Start FFmpeg loopback capture process in background
-                    proc = subprocess.Popen(
-                        ffmpeg_cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.DEVNULL,
-                        bufsize=1024 * 64,
-                    )
+                if proc and proc.poll() is None:
                     self._ffmpeg_process = proc
                     stream_opened = True
                     self._negotiated_format = {
@@ -262,7 +247,6 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
                     }
 
                     def _ffmpeg_reader():
-                        # Read float32 chunks (each sample = 4 bytes)
                         bytes_per_sample = 4
                         frames_per_chunk = 1024
                         chunk_size = frames_per_chunk * channels * bytes_per_sample
@@ -279,9 +263,34 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
 
                     self._reader_thread = threading.Thread(target=_ffmpeg_reader, daemon=True)
                     self._reader_thread.start()
-                except Exception as ff_ex:
-                    stream_opened = False
-                    last_error = f"{last_error}; FFmpeg WASAPI loopback failed: {ff_ex}"
+            except Exception as ff_ex:
+                last_error = f"FFmpeg WASAPI loopback failed: {ff_ex}"
+
+        if not stream_opened:
+            # Fallback to PortAudio/sounddevice candidate format negotiation
+            for ch, sr, extra, desc in candidates:
+                try:
+                    self._stream = sd.InputStream(
+                        device=target_device_id,
+                        samplerate=sr,
+                        channels=ch,
+                        callback=sd_callback,
+                        extra_settings=extra,
+                    )
+                    self._stream.start()
+                    stream_opened = True
+                    self._negotiated_format = {
+                        "device": device.name,
+                        "endpoint_id": target_device_id,
+                        "flow": "render",
+                        "loopback": True,
+                        "channels": ch,
+                        "sample_rate": sr,
+                        "strategy": desc,
+                    }
+                    break
+                except Exception as ex:
+                    last_error = ex
 
         if not stream_opened:
             raise RuntimeError(
