@@ -321,6 +321,58 @@ class BrowserServer:
             })
             return
 
+        if path == "/api/audio_chunk":
+            if not self.validate_token(token):
+                await self._send_http_response(writer, 401, {"status": "unauthorized"})
+                return
+
+            cap_session = payload.get("capture_session_id") or headers.get("x-capture-session-id")
+            content_type = headers.get("content-type", "")
+
+            # Parse audio chunk payload (base64 PCM float32, base64 int16, or raw binary)
+            audio_arr = None
+            if "data" in payload:
+                import base64
+                b64_data = payload["data"]
+                raw_bytes = base64.b64decode(b64_data)
+                sample_format = payload.get("sample_format", "float32").lower()
+                ch_count = int(payload.get("channels", 2))
+
+                if sample_format == "float32":
+                    audio_arr = np.frombuffer(raw_bytes, dtype=np.float32)
+                elif sample_format == "int16":
+                    audio_arr = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                elif sample_format == "int32":
+                    audio_arr = np.frombuffer(raw_bytes, dtype=np.int32).astype(np.float32) / 2147483648.0
+                else:
+                    audio_arr = np.frombuffer(raw_bytes, dtype=np.float32)
+
+                if audio_arr is not None and len(audio_arr) > 0:
+                    if ch_count > 0 and len(audio_arr) % ch_count == 0:
+                        audio_arr = audio_arr.reshape(-1, ch_count)
+                    else:
+                        audio_arr = audio_arr.reshape(-1, 1)
+
+            elif body_bytes and not payload:
+                # Raw binary float32 stereo stream
+                raw_bytes = body_bytes
+                audio_arr = np.frombuffer(raw_bytes, dtype=np.float32)
+                if len(audio_arr) % 2 == 0:
+                    audio_arr = audio_arr.reshape(-1, 2)
+                else:
+                    audio_arr = audio_arr.reshape(-1, 1)
+
+            if audio_arr is not None and len(audio_arr) > 0:
+                pushed = self.registry.push_audio_frame(audio_arr, capture_session_id=cap_session)
+                await self._send_http_response(writer, 200, {
+                    "status": "ok",
+                    "accepted": pushed,
+                    "frames": len(audio_arr),
+                })
+            else:
+                await self._send_http_response(writer, 400, {"error": "No valid audio frames in payload"})
+            return
+
         await self._send_http_response(writer, 404, {"error": "Not Found"})
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):

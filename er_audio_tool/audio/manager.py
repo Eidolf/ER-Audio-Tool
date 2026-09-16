@@ -69,13 +69,19 @@ class DeviceManager:
             if source_mode == "rec_system":
                 if self._win_system_capture.is_available():
                     return self._win_system_capture
+                raise RuntimeError("WASAPI System Output loopback backend is unavailable.")
             elif source_mode == "rec_app":
                 if self._win_app_capture.is_available():
                     return self._win_app_capture
+                raise RuntimeError(
+                    "Windows Application-specific Audio Capture is currently unavailable. "
+                    "The installed backend does not implement Windows process loopback."
+                )
             elif source_mode == "rec_mic":
                 if self._win_mic_capture.is_available():
                     return self._win_mic_capture
-            elif self._win_system_capture.is_available():
+                raise RuntimeError("Microphone backend is unavailable.")
+            else:
                 return self._win_system_capture
 
         if sys.platform.startswith("linux"):

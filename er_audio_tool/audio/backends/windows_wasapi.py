@@ -109,36 +109,52 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
 
         import sounddevice as sd
 
-        # HARD VALIDATION: Device must be a render endpoint with loopback
+        # HARD VALIDATION: Device must be a render endpoint or loopback source
         d_info = sd.query_devices(device.id)
         native_out_ch = int(d_info.get("max_output_channels", 0))
         native_in_ch = int(d_info.get("max_input_channels", 0))
-        if native_out_ch <= 0:
+
+        # Identify if device is an input-only physical device (microphone)
+        if native_out_ch <= 0 and native_in_ch > 0 and not device.is_loopback:
             raise RuntimeError(
                 f"Requested source is System Output, but endpoint '{device.name}' is a physical input endpoint. "
                 f"Microphone fallback is strictly prohibited."
             )
 
-        self._running = True
-
-        # Loopback settings MUST be initialized
-        wasapi_settings = None
-        try:
-            wasapi_settings = sd.WasapiSettings(loopback=True)
-        except Exception:
+        # Attempt to locate capture-capable loopback analogue if device reports 0 input channels
+        target_device_id = device.id
+        if native_in_ch <= 0:
+            # Look for a loopback representation of this render device
+            loopback_candidate = None
             try:
-                wasapi_settings = sd.WasapiSettings()
-                setattr(wasapi_settings, "loopback", True)
+                for idx, d in enumerate(sd.query_devices()):
+                    if d.get("max_input_channels", 0) > 0:
+                        d_name_lower = d.get("name", "").lower()
+                        # Check PyAudioWPatch or PortAudio loopback naming
+                        if "loopback" in d_name_lower and (device.name.lower() in d_name_lower or str(d.get("name", "")).startswith(str(d_info.get("name", "")))):
+                            loopback_candidate = idx
+                            break
             except Exception:
                 pass
+            if loopback_candidate is not None:
+                target_device_id = loopback_candidate
+                d_info = sd.query_devices(target_device_id)
+                native_in_ch = int(d_info.get("max_input_channels", 0))
 
-        if wasapi_settings is None:
-            raise RuntimeError(
-                f"WASAPI loopback settings could not be created for render endpoint '{device.name}'."
-            )
+        self._running = True
+
+        # Never pass loopback keyword to WasapiSettings. Standard sounddevice only supports:
+        # WasapiSettings(exclusive=False, auto_convert=False, explicit_sample_format=False)
+        wasapi_settings = None
+        try:
+            wasapi_settings = sd.WasapiSettings(exclusive=False)
+        except Exception:
+            pass
 
         native_sr = int(d_info.get("default_samplerate", sample_rate))
-        target_ch = native_out_ch if native_out_ch > 0 else 2
+        # Determine available input channel capacity
+        avail_in_ch = native_in_ch if native_in_ch > 0 else native_out_ch
+        target_ch = avail_in_ch if avail_in_ch > 0 else 2
         target_sr = native_sr if native_sr > 0 else sample_rate
 
         def sd_callback(indata, frames, time_info, status):
@@ -156,7 +172,7 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
                     data = data[:, :channels]
                 callback(data)
 
-        # Ranked format candidates (OBS-like driver mix negotiation)
+        # Ranked format candidates for driver mix negotiation
         candidates = [
             (target_ch, target_sr, wasapi_settings, "Native Mix Format"),
             (2, target_sr, wasapi_settings, "Stereo Native Rate"),
@@ -164,15 +180,17 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
             (2, 48000, wasapi_settings, "Stereo 48kHz"),
             (2, 44100, wasapi_settings, "Stereo 44.1kHz"),
         ]
-        if native_out_ch >= 4:
+        if target_ch >= 4:
             candidates.append((4, 48000, wasapi_settings, "Quad Surround 48kHz"))
+        if target_ch == 1:
+            candidates.append((1, target_sr, wasapi_settings, "Mono Native"))
 
         stream_opened = False
         last_error = None
         for ch, sr, extra, desc in candidates:
             try:
                 self._stream = sd.InputStream(
-                    device=device.id,
+                    device=target_device_id,
                     samplerate=sr,
                     channels=ch,
                     callback=sd_callback,
@@ -182,7 +200,7 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
                 stream_opened = True
                 self._negotiated_format = {
                     "device": device.name,
-                    "endpoint_id": device.id,
+                    "endpoint_id": target_device_id,
                     "flow": "render",
                     "loopback": True,
                     "channels": ch,
@@ -194,7 +212,11 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
                 last_error = ex
 
         if not stream_opened:
-            raise RuntimeError(f"WASAPI system loopback stream initialization failed: {last_error}")
+            raise RuntimeError(
+                f"WASAPI system loopback stream initialization failed: {last_error}. "
+                f"(Device: '{device.name}' [ID: {device.id}], Target ID: {target_device_id}, "
+                f"Max In: {native_in_ch}, Max Out: {native_out_ch}, Requested Channels: {channels})"
+            )
 
     def stop_capture(self) -> None:
         self._running = False
@@ -224,12 +246,17 @@ class WindowsApplicationAudioCapture(AudioCaptureBackend):
         return BackendType.WASAPI
 
     def is_available(self) -> bool:
-        return sys.platform == "win32"
+        # Standard sounddevice does not support Windows process-loopback activation (AUDIOCLIENT_ACTIVATION_PARAMS).
+        # Check if an external native process-capture backend or driver is present
+        if sys.platform != "win32":
+            return False
+        # If native process loopback is not compiled/available, report honest capability
+        return False
 
     def enumerate_devices(self) -> list[AudioDeviceInfo]:
         """Enumerates running user applications with audio or active windows."""
         devices = []
-        if sys.platform != "win32":
+        if not self.is_available():
             return []
 
         # Attempt to enumerate active processes / windows
@@ -284,30 +311,15 @@ class WindowsApplicationAudioCapture(AudioCaptureBackend):
         if sys.platform != "win32":
             raise RuntimeError("Windows Application Audio Capture is only supported on Windows.")
 
+        if not self.is_available():
+            raise RuntimeError(
+                "Windows Application-specific Audio Capture (Process Loopback) is currently unavailable. "
+                "The installed audio backend does not implement Windows 10/11 process loopback activation. "
+                "Please use 'System Output' mode to capture audio from the active output device."
+            )
+
         # STRICT ISOLATION: Never open physical input / microphone
-        # Use system loopback adapter bound to application session or process loopback
-        # If native Windows 10/11 process loopback API is available, hook it; otherwise loopback render endpoint
-        import sounddevice as sd
-        self._running = True
-
-        out_dev_id = sd.default.device[1]
-        wasapi_settings = sd.WasapiSettings(loopback=True)
-
-        def sd_callback(indata, frames, time_info, status):
-            if self._running and callback:
-                data = indata.copy()
-                if channels == 1 and data.shape[1] > 1:
-                    data = np.mean(data, axis=1, keepdims=True)
-                callback(data)
-
-        self._stream = sd.InputStream(
-            device=out_dev_id,
-            samplerate=sample_rate,
-            channels=channels,
-            callback=sd_callback,
-            extra_settings=wasapi_settings,
-        )
-        self._stream.start()
+        raise RuntimeError("Process-specific loopback driver not active.")
 
     def stop_capture(self) -> None:
         self._running = False

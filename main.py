@@ -119,10 +119,9 @@ class Recorder:
         self._tmp_wav = None
         self._mp3_target = None
         try:
-            self._was = sd.WasapiSettings(loopback=True)
-        except TypeError:
-            self._was = sd.WasapiSettings()
-            setattr(self._was, "loopback", True)
+            self._was = sd.WasapiSettings(exclusive=False)
+        except Exception:
+            self._was = None
 
     def _stamp(self) -> str:
         return self._ts.strftime("%Y%m%d_%H%M%S")

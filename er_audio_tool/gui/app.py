@@ -1138,12 +1138,28 @@ class ErAudioApp(ctk.CTk):
             if self._recording_data:
                 combined = np.concatenate(self._recording_data, axis=0)
                 AudioEncoder.save_audio(combined, self.cfg.sample_rate, target_path, format_type=out_fmt)
-                messagebox.showinfo(self.i18n.t("app_title"), f"Saved: {target_path}")
+                from er_audio_tool.audio.output_validator import OutputValidator, OutputClassification
+                val = OutputValidator.validate_file(target_path)
+                if val.classification == OutputClassification.VALID_SIGNAL:
+                    messagebox.showinfo(self.i18n.t("app_title"), f"Saved: {target_path}\nDuration: {val.duration_seconds:.2f}s | Peak: {val.peak_db:.1f} dBFS")
+                elif val.classification == OutputClassification.DIGITAL_SILENCE:
+                    messagebox.showwarning(
+                        self.i18n.t("app_title"),
+                        f"Saved file contains digital silence (no audible audio signal detected):\n{target_path}\n"
+                        f"Duration: {val.duration_seconds:.2f}s | Frames: {val.frame_count}\n"
+                        f"Hinweis: Stellen Sie sicher, dass Audio auf dem ausgewählten Gerät abgespielt wird."
+                    )
+                else:
+                    messagebox.showerror(
+                        self.i18n.t("error"),
+                        f"Recording validation warning: {val.error_message or val.classification.value}"
+                    )
             else:
-                # If zero frames received, write clean diagnostic silent file so user has an output and warning
-                zero_audio = np.zeros((self.cfg.sample_rate * 2, self.cfg.channels), dtype=np.float32)
-                AudioEncoder.save_audio(zero_audio, self.cfg.sample_rate, target_path, format_type=out_fmt)
-                messagebox.showwarning(self.i18n.t("error"), "No audio frames were received from the endpoint. Saved silent diagnostic file.")
+                messagebox.showerror(
+                    self.i18n.t("error"),
+                    "No audio frames were received during the recording session.\n"
+                    "No empty file was created. Please verify device or browser connection."
+                )
 
             self.state_machine.transition_to(AppState.COMPLETED)
             self.state_machine.transition_to(AppState.IDLE)

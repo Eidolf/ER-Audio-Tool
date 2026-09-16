@@ -209,45 +209,51 @@ class DiagnosticRunner:
                         )
                     )
 
-                    # Test opening a non-blocking loopback stream briefly
-                    stream = None
+                    # Test opening a loopback stream using production backend path
+                    backend = dm.get_backend_for_source_type("rec_system")
+                    packets_received = 0
+                    test_error = None
                     try:
-                        wasapi_settings = sd.WasapiSettings(loopback=True)
-                        stream = sd.InputStream(
-                            device=default_dev.id,
-                            samplerate=sr,
+                        def _test_cb(data):
+                            nonlocal packets_received
+                            packets_received += 1
+
+                        backend.start_capture(
+                            device=default_dev,
+                            sample_rate=sr,
                             channels=out_ch if out_ch > 0 else 2,
-                            callback=lambda indata, f, t, s: None,
-                            extra_settings=wasapi_settings,
+                            callback=_test_cb,
                         )
-                        stream.start()
                         import time
-                        time.sleep(0.05)
+                        time.sleep(0.08)
+                        backend.stop_capture()
                         test_results.append(
                             DiagnosticItem(
                                 category="Audio Capture",
                                 name="WASAPI Loopback Test",
                                 status="PASSED",
-                                details="WASAPI Loopback Stream erfolgreich initialisiert und geöffnet.",
+                                details=(
+                                    f"WASAPI Loopback Stream erfolgreich initialisiert und geöffnet. "
+                                    f"Empfangene Test-Pakete: {packets_received}."
+                                ),
                             )
                         )
                     except Exception as ex:
+                        err_str = str(ex)
+                        rec_msg = "Sicherstellen, dass ein Audiosignal auf dem Standard-Wiedergabegerät abgespielt wird."
+                        if "WasapiSettings" in err_str or "loopback" in err_str:
+                            rec_msg = "Das installierte Audio-Backend unterstützt kein natives Loopback über das aktuelle Treiber-Interface."
+                        elif "-9998" in err_str or "Invalid number of channels" in err_str:
+                            rec_msg = "Das Wiedergabegerät erfordert native Kanalverhandlung. Format-Kandidaten im Backend prüfen."
                         test_results.append(
                             DiagnosticItem(
                                 category="Audio Capture",
                                 name="WASAPI Loopback Test",
                                 status="WARNING",
                                 details=f"Stream-Initialisierung fehlgeschlagen: {ex}",
-                                recommendation="Sicherstellen, dass Audiosignal wiedergegeben wird und exklusiver Modus in Windows deaktiviert ist.",
+                                recommendation=rec_msg,
                             )
                         )
-                    finally:
-                        if stream:
-                            try:
-                                stream.stop()
-                                stream.close()
-                            except Exception:
-                                pass
                 except Exception as ex:
                     test_results.append(
                         DiagnosticItem(
