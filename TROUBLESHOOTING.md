@@ -690,13 +690,13 @@ If your issue isn't covered here:
 
 ### Stem Separation
 
-**Status:** Placeholder implementation (no ML model)
+**Status:** Experimental frequency-based implementation (DSP spectral filtering without external ML model)
 
-**Reason:** Requires large ML model (hundreds of MB) with licensing and dependencies.
+**Reason:** Advanced neural separation (e.g. Demucs/Spleeter) requires large ML models (hundreds of MB) with heavy dependencies. An internal DSP frequency/spectral bandpass separation is implemented for lightweight offline workflows.
 
-**Workaround:** Use external tools for stem separation, then import results.
+**Workaround:** For studio-grade neural isolation, use external ML tools for stem separation, then import results.
 
-**Future:** Under consideration for future release.
+**Future:** Dedicated neural model download options under consideration for future releases.
 
 ### Full MIDI Arrangement & Multi-Track Export
 
@@ -705,7 +705,7 @@ If your issue isn't covered here:
 **Behavior:**
 - Multi-channel notes auto-export as Standard MIDI File (SMF) Format 1 with one dedicated track per channel (Tempo Track 0 + individual channel tracks).
 - Single-channel notes auto-export as SMF Format 0 for broad player compatibility, or can be forced to Format 1 via `multitrack=True`.
-- Stem separation pipeline integrates directly with multi-track arrangement (Drums on Channel 9, Bass on Channel 2, Melody on Channel 0, Accompaniment on Channel 1).
+- Stem separation pipeline integrates directly with multi-track arrangement (Bass on Channel 2, Drums on Channel 9, Vocals on Channel 3, Other on Channel 1).
 
 ---
 

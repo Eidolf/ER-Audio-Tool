@@ -127,11 +127,11 @@ Gesamt: +5,782 Zeilen
 
 ### Test-Status
 ```
-Gesamt: 36 Tests gesammelt (35 bestanden, 1 übersprungen)
-Bestanden: 35 (97.2% der gesammelten Tests, 100% der ausführbaren Tests)
+Gesamt: 39 Tests gesammelt (38 bestanden, 1 übersprungen)
+Bestanden: 38 (97.4% der gesammelten Tests, 100% der ausführbaren Tests)
 Übersprungen: 1 (GUI ohne X-Server - erwartet)
 Fehlgeschlagen: 0
-Zeit: 0.70 Sekunden
+Befehl: pytest (pytest tests/)
 ```
 
 ### Dateien

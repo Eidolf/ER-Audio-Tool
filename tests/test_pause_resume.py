@@ -1,4 +1,5 @@
 """Test recording pause/resume functionality."""
+import threading
 import time
 import tempfile
 from pathlib import Path
@@ -14,10 +15,12 @@ def test_recording_pause_resume():
     backend = MockAudioBackend(generate_tone_hz=440.0)
     
     received_chunks = []
+    lock = threading.Lock()
     
     def callback(data: np.ndarray):
-        if state_machine.current_state == AppState.RECORDING:
-            received_chunks.append(data.copy())
+        with lock:
+            if state_machine.current_state == AppState.RECORDING:
+                received_chunks.append(data.copy())
     
     # Simulate recording lifecycle
     state_machine = StateMachine(AppState.IDLE)
@@ -31,16 +34,17 @@ def test_recording_pause_resume():
     
     # Record for 0.5 seconds
     time.sleep(0.5)
-    chunks_before_pause = len(received_chunks)
-    assert chunks_before_pause > 0
-    
-    # Pause
-    assert state_machine.transition_to(AppState.PAUSED)
+    with lock:
+        chunks_before_pause = len(received_chunks)
+        assert chunks_before_pause > 0
+        # Pause under the same lock
+        assert state_machine.transition_to(AppState.PAUSED)
+        chunks_at_boundary = len(received_chunks)
     
     # Wait 0.3 seconds (paused)
     time.sleep(0.3)
-    chunks_during_pause = len([c for c in received_chunks if state_machine.current_state == AppState.RECORDING])
-    assert len(received_chunks) == chunks_before_pause, "Chunk count must remain unchanged while paused"
+    with lock:
+        assert len(received_chunks) == chunks_at_boundary, "Chunk count must remain unchanged while paused"
     
     # Resume
     assert state_machine.transition_to(AppState.RECORDING)
