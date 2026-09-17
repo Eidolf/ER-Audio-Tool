@@ -1,5 +1,16 @@
 // Background service worker for er-audio-tool Chrome extension
-// Manages authentication, tab selection sync, and audio stream transport with local loopback server
+// Manages authentication, tab selection sync, and audio stream transport.
+//
+// ARCHITECTURE (Manifest V3):
+//   Service Worker (this file) – has no DOM, no AudioContext.
+//   Offscreen Document (offscreen.html + offscreen.js) – has DOM + AudioContext.
+//
+// Audio capture flow:
+//   1. SW calls chrome.tabCapture.getMediaStreamId() → streamId
+//   2. SW creates/reuses Offscreen Document
+//   3. SW sends streamId + token to Offscreen via chrome.runtime.sendMessage
+//   4. Offscreen attaches getUserMedia(chromeMediaSourceId=streamId), runs
+//      AudioContext + ScriptProcessorNode, sends float32 PCM chunks to desktop server.
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("er-audio-tool companion extension installed");
@@ -24,176 +35,171 @@ if (chrome.alarms) {
   });
 }
 
-// Periodic interval fallback
+// Periodic interval fallback (service worker may wake on alarms)
 setInterval(() => {
   performHeartbeat();
 }, 20000);
 
 async function performHeartbeat() {
-  chrome.storage.local.get(["sessionToken", "selectedTabId"], async (stored) => {
+  chrome.storage.local.get(["sessionToken"], async (stored) => {
     const token = stored.sessionToken;
     if (!token) return;
     await sendToDesktopServer("/api/heartbeat", { extension_id: "chrome-companion" }, token);
   });
 }
 
+// ── State ──────────────────────────────────────────────────────────────────────
 let isRecording = false;
 let activeTabInfo = null;
-let activeStream = null;
-let mediaRecorder = null;
-let captureSessionId = null;
+let captureSessionId = null; // remains null – desktop server generates the real ID
+let currentCaptureGen = 0;
 
-// Communicates events to loopback HTTP server
+// ── Desktop Server Communication ───────────────────────────────────────────────
 async function sendToDesktopServer(endpoint, payload, token) {
   try {
     const resp = await fetch(`http://127.0.0.1:58291${endpoint}`, {
       method: "POST",
-      headers: { 
+      headers: {
         "Content-Type": "application/json",
-        "X-Session-Token": token || ""
+        "X-Session-Token": token || "",
       },
-      body: JSON.stringify({ ...payload, token })
+      body: JSON.stringify({ ...payload, token }),
     });
     return await resp.json();
-  } catch (err) {
+  } catch (_) {
     return null;
   }
 }
 
-// Sends binary/PCM audio chunk to loopback desktop server
-async function sendAudioChunk(float32Array, channels, sampleRate, token) {
-  try {
-    // Convert Float32Array to base64
-    const uint8 = new Uint8Array(float32Array.buffer, float32Array.byteOffset, float32Array.byteLength);
-    let binary = "";
-    const len = uint8.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(uint8[i]);
-    }
-    const b64 = btoa(binary);
+// ── Offscreen Document Lifecycle ───────────────────────────────────────────────
+async function ensureOffscreenDocument() {
+  // chrome.offscreen API is available from Chrome 109+
+  if (!chrome.offscreen) {
+    throw new Error("chrome.offscreen API not available (Chrome 109+ required).");
+  }
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ["OFFSCREEN_DOCUMENT"],
+  });
+  if (existingContexts.length > 0) {
+    return; // already open
+  }
+  await chrome.offscreen.createDocument({
+    url: "offscreen.html",
+    reasons: ["USER_MEDIA"],
+    justification: "Capture tab audio via AudioContext (not available in Service Worker)",
+  });
+}
 
-    await fetch("http://127.0.0.1:58291/api/audio_chunk", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Session-Token": token || "",
-        "X-Capture-Session-ID": captureSessionId || ""
-      },
-      body: JSON.stringify({
-        token: token || "",
-        capture_session_id: captureSessionId,
-        channels: channels || 2,
-        sample_rate: sampleRate || 48000,
-        sample_format: "float32",
-        data: b64
-      })
+async function closeOffscreenDocument() {
+  if (!chrome.offscreen) return;
+  try {
+    await chrome.offscreen.closeDocument();
+  } catch (_) {}
+}
+
+// ── Tab Audio Capture ──────────────────────────────────────────────────────────
+async function startTabAudioCapture(tabInfo, token, expectedGen) {
+  if (!chrome.tabCapture || typeof chrome.tabCapture.getMediaStreamId !== "function") {
+    console.warn("chrome.tabCapture.getMediaStreamId not available");
+    return;
+  }
+
+  let streamId;
+  try {
+    streamId = await new Promise((resolve, reject) => {
+      chrome.tabCapture.getMediaStreamId(
+        { targetTabId: tabInfo.id },
+        (id) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            resolve(id);
+          }
+        }
+      );
     });
   } catch (err) {
-    // Non-blocking error handling
+    console.warn("tabCapture.getMediaStreamId failed:", err.message);
+    return;
+  }
+
+  if (expectedGen !== currentCaptureGen || !isRecording) {
+    return;
+  }
+
+  try {
+    await ensureOffscreenDocument();
+  } catch (err) {
+    console.warn("Could not create offscreen document:", err.message);
+    return;
+  }
+
+  if (expectedGen !== currentCaptureGen || !isRecording) {
+    return;
+  }
+
+  // Forward streamId to Offscreen Document to start AudioContext capture
+  try {
+    await chrome.runtime.sendMessage({
+      action: "START_OFFSCREEN_CAPTURE",
+      streamId: streamId,
+      token: token,
+      captureSession: captureSessionId, // null – desktop server validates its own sessions
+      generation: expectedGen,
+    });
+  } catch (err) {
+    console.warn("Offscreen message failed:", err.message);
   }
 }
 
-function stopTabAudioCapture() {
-  if (mediaRecorder && mediaRecorder.state !== "inactive") {
-    try {
-      mediaRecorder.stop();
-    } catch (e) {}
-    mediaRecorder = null;
-  }
-  if (activeStream) {
-    try {
-      activeStream.getTracks().forEach(t => t.stop());
-    } catch (e) {}
-    activeStream = null;
-  }
+async function stopTabAudioCapture() {
+  currentCaptureGen++;
+  // Tell offscreen to stop
+  try {
+    await chrome.runtime.sendMessage({ action: "STOP_OFFSCREEN_CAPTURE" });
+  } catch (_) {}
+  await closeOffscreenDocument();
+
   isRecording = false;
   activeTabInfo = null;
   captureSessionId = null;
-  chrome.action.setBadgeText({ text: "" });
+  try { chrome.action.setBadgeText({ text: "" }); } catch (_) {}
 }
 
+// ── Message Handler ────────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "START_CAPTURE") {
     isRecording = true;
     activeTabInfo = message.tabInfo || null;
-    chrome.action.setBadgeText({ text: "REC" });
-    chrome.action.setBadgeBackgroundColor({ color: "#e53935" });
+    const captureGen = ++currentCaptureGen;
+    try {
+      chrome.action.setBadgeText({ text: "REC" });
+      chrome.action.setBadgeBackgroundColor({ color: "#e53935" });
+    } catch (_) {}
 
-    chrome.storage.local.get(["sessionToken"], (stored) => {
+    chrome.storage.local.get(["sessionToken"], async (stored) => {
+      if (captureGen !== currentCaptureGen || !isRecording) return;
       const token = stored.sessionToken;
-      sendToDesktopServer("/api/tab_selected", { tabInfo: activeTabInfo }, token);
 
-      // Start actual tab audio capture if tabCapture is available
-      if (chrome.tabCapture && typeof chrome.tabCapture.capture === "function") {
-        try {
-          chrome.tabCapture.capture({ audio: true, video: false }, (stream) => {
-            if (chrome.runtime.lastError || !stream) {
-              console.warn("tabCapture failed:", chrome.runtime.lastError);
-              return;
-            }
-            activeStream = stream;
-            // Web Audio API or MediaRecorder to capture chunks
-            try {
-              const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-              const source = audioCtx.createMediaStreamSource(stream);
-              // Maintain local audio playback so tab audio remains audible to user
-              source.connect(audioCtx.destination);
+      // Notify desktop server which tab was selected
+      await sendToDesktopServer("/api/tab_selected", { tabInfo: activeTabInfo }, token);
+      if (captureGen !== currentCaptureGen || !isRecording) return;
 
-              // Capture PCM audio using ScriptProcessor/AudioWorklet
-              const scriptNode = audioCtx.createScriptProcessor(4096, 2, 2);
-              scriptNode.onaudioprocess = (audioProcessingEvent) => {
-                if (!isRecording) return;
-                const inputBuffer = audioProcessingEvent.inputBuffer;
-                const ch0 = inputBuffer.getChannelData(0);
-                const ch1 = inputBuffer.numberOfChannels > 1 ? inputBuffer.getChannelData(1) : ch0;
-                const frames = inputBuffer.length;
-                const interleaved = new Float32Array(frames * 2);
-                for (let i = 0; i < frames; i++) {
-                  interleaved[i * 2] = ch0[i];
-                  interleaved[i * 2 + 1] = ch1[i];
-                }
-                sendAudioChunk(interleaved, 2, audioCtx.sampleRate, token);
-              };
-              source.connect(scriptNode);
-              scriptNode.connect(audioCtx.destination);
-            } catch (ctxErr) {
-              // Fallback to MediaRecorder if AudioContext is unavailable in worker context
-              try {
-                mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
-                mediaRecorder.ondataavailable = async (e) => {
-                  if (e.data && e.data.size > 0 && isRecording) {
-                    // Send chunk
-                    const buf = await e.data.arrayBuffer();
-                    const uint8 = new Uint8Array(buf);
-                    let binary = "";
-                    for (let i = 0; i < uint8.byteLength; i++) {
-                      binary += String.fromCharCode(uint8[i]);
-                    }
-                    fetch("http://127.0.0.1:58291/api/audio_chunk", {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/octet-stream",
-                        "X-Session-Token": token || ""
-                      },
-                      body: buf
-                    }).catch(() => {});
-                  }
-                };
-                mediaRecorder.start(250);
-              } catch (recErr) {}
-            }
-          });
-        } catch (e) {
-          console.warn("Exception invoking tabCapture:", e);
-        }
+      // Start audio capture through Offscreen Document
+      if (activeTabInfo) {
+        await startTabAudioCapture(activeTabInfo, token, captureGen);
       }
     });
+
     sendResponse({ status: "started" });
+
   } else if (message.action === "STOP_CAPTURE") {
-    stopTabAudioCapture();
-    sendResponse({ status: "stopped" });
+    stopTabAudioCapture().then(() => sendResponse({ status: "stopped" }));
+    return true; // async
+
   } else if (message.action === "GET_STATE") {
     sendResponse({ isRecording, activeTabInfo });
+
   } else if (message.action === "TAB_SELECTED") {
     activeTabInfo = message.tabInfo;
     chrome.storage.local.get(["sessionToken"], (stored) => {
@@ -201,5 +207,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     sendResponse({ status: "ok" });
   }
-  return true;
+
+  return true; // keep message channel open for async responses
 });

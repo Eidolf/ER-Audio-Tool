@@ -39,8 +39,32 @@ class AudioAnalyzer:
             raise FileNotFoundError(f"Audio file not found: {p}")
 
         warnings = []
-        info = sf.info(p)
-        data, sr = sf.read(p, always_2d=True, dtype="float32")
+        try:
+            info = sf.info(p)
+            data, sr = sf.read(p, always_2d=True, dtype="float32")
+            fmt = info.format
+            b_depth = info.subtype
+        except Exception:
+            # Fallback to FFmpeg for formats not natively supported by libsndfile (e.g. M4A/ALAC/AAC)
+            import shutil
+            import subprocess
+            import tempfile
+            from er_audio_tool.audio.codecs import get_ffmpeg_path
+            ffmpeg = get_ffmpeg_path() or shutil.which("ffmpeg")
+            if not ffmpeg:
+                raise
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+            try:
+                cmd = [ffmpeg, "-y", "-i", str(p), "-vn", "-c:a", "pcm_s16le", str(tmp_path)]
+                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                info = sf.info(tmp_path)
+                data, sr = sf.read(tmp_path, always_2d=True, dtype="float32")
+                fmt = p.suffix.lstrip(".").upper()
+                b_depth = "DECODED_PCM16"
+            finally:
+                if tmp_path.exists():
+                    tmp_path.unlink()
 
         duration = len(data) / sr
         channels = data.shape[1]
@@ -76,8 +100,8 @@ class AudioAnalyzer:
             duration_seconds=round(duration, 2),
             sample_rate=sr,
             channels=channels,
-            format=info.format,
-            bit_depth=info.subtype,
+            format=fmt,
+            bit_depth=b_depth,
             peak_db=round(peak_db, 2),
             rms_db=round(rms_db, 2),
             is_clipping=is_clipping,
