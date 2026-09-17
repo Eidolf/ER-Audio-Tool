@@ -9,6 +9,7 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 from er_audio_tool.midi.model import NoteEvent
+from er_audio_tool.utils.subprocess_helper import safe_run
 
 
 class MidiRenderer:
@@ -142,7 +143,7 @@ class MidiRenderer:
                     "-codec:a", "libmp3lame", "-b:a", "256k",
                     str(output_path)
                 ]
-                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                safe_run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
             except Exception:
                 # Fallback to copy wav
                 shutil.copyfile(temp_wav, output_path)

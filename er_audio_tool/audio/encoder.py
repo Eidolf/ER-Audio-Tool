@@ -9,6 +9,8 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 
+from er_audio_tool.utils.subprocess_helper import safe_run
+
 
 class AudioEncoder:
     """Encodes raw audio frames into WAV, FLAC, or MP3 with metadata and crash recovery."""
@@ -77,7 +79,7 @@ class AudioEncoder:
                         "-codec:a", "libmp3lame", "-b:a", "320k",
                         str(temp_path)
                     ]
-                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                    safe_run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
                 except Exception:
                     # Fallback if ffmpeg is missing: save as WAV with .mp3.wav suffix or rename
                     shutil.copyfile(wav_temp, temp_path)

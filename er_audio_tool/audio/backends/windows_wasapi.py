@@ -12,6 +12,8 @@ import threading
 from typing import Optional
 import numpy as np
 
+from er_audio_tool.utils.subprocess_helper import safe_popen
+
 from er_audio_tool.audio.interfaces import (
     AudioCaptureBackend,
     AudioDeviceInfo,
@@ -189,6 +191,8 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
         if target_ch == 1:
             candidates.append((1, target_sr, wasapi_settings, "Mono Native"))
 
+        stream_opened = False
+
         # Check if portable or system FFmpeg is available for native WASAPI loopback capture.
         # FFmpeg uses direct Windows WASAPI loopback (AUDCLNT_STREAMFLAGS_LOOPBACK) identical to OBS Studio.
         ffmpeg_path = get_codec_manager().get_active_ffmpeg()
@@ -219,7 +223,7 @@ class WindowsSystemOutputCapture(AudioCaptureBackend):
                             "-ac", str(channels),
                             "-",
                         ]
-                        proc = subprocess.Popen(
+                        proc = safe_popen(
                             ffmpeg_cmd,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL,

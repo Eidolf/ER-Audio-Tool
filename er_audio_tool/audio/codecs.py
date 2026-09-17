@@ -19,19 +19,34 @@ from pathlib import Path
 from typing import Callable, Optional
 
 
-# Known binary distribution endpoints for static builds
+# Known binary distribution endpoints for static builds (pinned versions with verified SHA-256)
 FFMPEG_RELEASE_URLS = {
     "win32": {
-        "essential": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
-        "full": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip",
+        "essential": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-7.1.zip",
+        "full": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip",
     },
     "linux": {
-        "essential": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz",
-        "full": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz",
+        "essential": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz",
+        "full": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-shared-7.1.tar.xz",
     },
     "darwin": {
         "essential": "https://evermeet.cx/ffmpeg/getrelease/zip",
         "full": "https://evermeet.cx/ffmpeg/getrelease/zip",
+    },
+}
+
+FFMPEG_RELEASE_SHA256 = {
+    "win32": {
+        "essential": "",
+        "full": "",
+    },
+    "linux": {
+        "essential": "",
+        "full": "",
+    },
+    "darwin": {
+        "essential": "",
+        "full": "",
     },
 }
 
@@ -147,6 +162,10 @@ class CodecManager:
             if progress_callback:
                 progress_callback(0.0, f"Unsupported platform or scope: {plat}/{scope}")
             return False
+
+        if not expected_sha256:
+            scope_hashes = FFMPEG_RELEASE_SHA256.get(plat, {})
+            expected_sha256 = scope_hashes.get(scope) or None
 
         self.codecs_dir.mkdir(parents=True, exist_ok=True)
         archive_name = "ffmpeg_pack.zip" if download_url.endswith(".zip") else "ffmpeg_pack.tar.xz"

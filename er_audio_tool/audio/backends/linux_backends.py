@@ -7,6 +7,8 @@ import sys
 from typing import Optional
 import numpy as np
 
+from er_audio_tool.utils.subprocess_helper import safe_popen, safe_check_output
+
 from er_audio_tool.audio.interfaces import (
     AudioCaptureBackend,
     AudioDeviceInfo,
@@ -76,7 +78,7 @@ class LinuxPipeWireBackend(AudioCaptureBackend):
             "-",  # stdout
         ]
 
-        self._proc = subprocess.Popen(
+        self._proc = safe_popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -112,7 +114,7 @@ class LinuxPipeWireBackend(AudioCaptureBackend):
         pactl = shutil.which("pactl")
         if pactl:
             try:
-                out = subprocess.check_output(
+                out = safe_check_output(
                     [pactl, "get-default-sink"], text=True, timeout=3
                 ).strip()
                 if out:
@@ -121,7 +123,7 @@ class LinuxPipeWireBackend(AudioCaptureBackend):
                 pass
             # Fallback: list all sinks and pick first monitor
             try:
-                out = subprocess.check_output(
+                out = safe_check_output(
                     [pactl, "list", "short", "sources"], text=True, timeout=3
                 )
                 for line in out.splitlines():
@@ -135,7 +137,7 @@ class LinuxPipeWireBackend(AudioCaptureBackend):
         pw_cli = shutil.which("pw-cli")
         if pw_cli:
             try:
-                out = subprocess.check_output(
+                out = safe_check_output(
                     [pw_cli, "list-objects", "Node"],
                     text=True, timeout=5, stderr=subprocess.DEVNULL
                 )
@@ -186,7 +188,7 @@ class LinuxPulseAudioBackend(AudioCaptureBackend):
         pactl = shutil.which("pactl")
         if pactl:
             try:
-                out = subprocess.check_output([pactl, "list", "short", "sources"], text=True)
+                out = safe_check_output([pactl, "list", "short", "sources"], text=True)
                 for line in out.strip().splitlines():
                     parts = line.split()
                     if len(parts) >= 2 and ".monitor" in parts[1]:
@@ -239,7 +241,7 @@ class LinuxPulseAudioBackend(AudioCaptureBackend):
         if device.id and device.id != "default-pulse-monitor":
             cmd.extend(["-d", str(device.id)])
 
-        self._proc = subprocess.Popen(
+        self._proc = safe_popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,

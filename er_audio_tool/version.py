@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from er_audio_tool.utils.subprocess_helper import safe_run
+
 # Fallback default if no Git or package metadata is present
 FALLBACK_VERSION = "0.4.0"
 
@@ -45,7 +47,7 @@ def get_version() -> str:
     try:
         git_dir = Path(__file__).resolve().parent.parent / ".git"
         if git_dir.exists():
-            proc = subprocess.run(
+            proc = safe_run(
                 ["git", "describe", "--tags", "--abbrev=0"],
                 capture_output=True,
                 text=True,

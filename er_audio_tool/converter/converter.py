@@ -10,6 +10,8 @@ from typing import Callable, Optional
 import numpy as np
 import soundfile as sf
 
+from er_audio_tool.utils.subprocess_helper import safe_run
+
 
 @dataclass
 class ConversionJob:
@@ -83,7 +85,7 @@ class AudioConverter:
 
                 cmd.append(str(out_path))
 
-                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                safe_run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
                 # Validate output
                 if out_path.exists() and out_path.stat().st_size > 0:

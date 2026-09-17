@@ -10,6 +10,8 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import Optional
 
+from er_audio_tool.utils.subprocess_helper import safe_run
+
 import customtkinter as ctk
 import numpy as np
 from PIL import Image
@@ -152,28 +154,15 @@ class ErAudioApp(ctk.CTk):
         self._render_sidebar()
 
     def _attach_sidebar_wheel_scrolling(self):
-        """Attaches reliable mouse-wheel routing to the sidebar canvas and all child controls."""
-        def _is_descendant(widget, parent):
-            while widget:
-                if widget == parent:
-                    return True
-                widget = getattr(widget, "master", None)
-            return False
+        """Attaches reliable mouse-wheel and keyboard routing to the sidebar canvas and child controls."""
+        def _scroll_sidebar(delta):
+            canvas = getattr(self.sidebar_frame, "_parent_canvas", None)
+            if canvas and canvas.winfo_exists() and delta != 0:
+                canvas.yview_scroll(delta, "units")
 
-        def _on_global_mousewheel(event):
+        def _on_sidebar_mousewheel(event):
             try:
-                # Find widget under mouse cursor
-                x, y = event.x_root, event.y_root
-                hovered = self.winfo_containing(x, y)
-                if not hovered or not _is_descendant(hovered, self.sidebar_frame):
-                    return
-
-                canvas = getattr(self.sidebar_frame, "_parent_canvas", None)
-                if not canvas or not canvas.winfo_exists():
-                    return
-
                 if sys.platform.startswith("win"):
-                    # On Windows event.delta is typically multiples of 120 or touchpad gestures
                     raw_delta = getattr(event, "delta", 0)
                     delta = -int(raw_delta / 40) if raw_delta != 0 else 0
                     if delta == 0 and raw_delta > 0:
@@ -188,28 +177,60 @@ class ErAudioApp(ctk.CTk):
                     raw_delta = getattr(event, "delta", 0)
                     delta = -int(raw_delta) if raw_delta != 0 else 1
 
-                if delta != 0:
-                    canvas.yview_scroll(delta, "units")
+                _scroll_sidebar(delta)
+            except Exception:
+                pass
+            return "break"
+
+        def _on_sidebar_key(event):
+            try:
+                canvas = getattr(self.sidebar_frame, "_parent_canvas", None)
+                if not canvas or not canvas.winfo_exists():
+                    return
+                keysym = getattr(event, "keysym", "")
+                if keysym in ("Prior", "Page_Up"):
+                    canvas.yview_scroll(-5, "units")
+                    return "break"
+                elif keysym in ("Next", "Page_Down"):
+                    canvas.yview_scroll(5, "units")
+                    return "break"
+                elif keysym == "Home":
+                    canvas.yview_moveto(0.0)
+                    return "break"
+                elif keysym == "End":
+                    canvas.yview_moveto(1.0)
+                    return "break"
             except Exception:
                 pass
 
-        self._sidebar_wheel_handler = _on_global_mousewheel
+        self._sidebar_wheel_handler = _on_sidebar_mousewheel
+        self._sidebar_key_handler = _on_sidebar_key
+
+        # Bind directly to sidebar frame and its internal canvas
         try:
-            self.bind_all("<MouseWheel>", _on_global_mousewheel, add="+")
-            self.bind_all("<Button-4>", _on_global_mousewheel, add="+")
-            self.bind_all("<Button-5>", _on_global_mousewheel, add="+")
+            self._bind_wheel_to_sidebar_widget(self.sidebar_frame)
+            canvas = getattr(self.sidebar_frame, "_parent_canvas", None)
+            if canvas:
+                self._bind_wheel_to_sidebar_widget(canvas)
         except Exception:
             pass
 
     def _bind_wheel_to_sidebar_widget(self, widget):
-        """Recursively binds mouse-wheel routing to any widget added to the sidebar."""
-        handler = getattr(self, "_sidebar_wheel_handler", None)
-        if not handler:
+        """Recursively binds mouse-wheel and keyboard routing to any widget added to the sidebar."""
+        w_handler = getattr(self, "_sidebar_wheel_handler", None)
+        k_handler = getattr(self, "_sidebar_key_handler", None)
+        if not widget:
             return
         try:
-            widget.bind("<MouseWheel>", handler, add="+")
-            widget.bind("<Button-4>", handler, add="+")
-            widget.bind("<Button-5>", handler, add="+")
+            if w_handler:
+                widget.bind("<MouseWheel>", w_handler, add="+")
+                widget.bind("<Button-4>", w_handler, add="+")
+                widget.bind("<Button-5>", w_handler, add="+")
+            if k_handler:
+                widget.bind("<Prior>", k_handler, add="+")
+                widget.bind("<Next>", k_handler, add="+")
+                widget.bind("<Home>", k_handler, add="+")
+                widget.bind("<End>", k_handler, add="+")
             for ch in widget.winfo_children():
                 self._bind_wheel_to_sidebar_widget(ch)
         except Exception:
@@ -1002,9 +1023,9 @@ class ErAudioApp(ctk.CTk):
             if sys.platform == "win32":
                 os.startfile(str(p))
             elif sys.platform == "darwin":
-                subprocess.run(["open", str(p)])
+                safe_run(["open", str(p)])
             else:
-                subprocess.run(["xdg-open", str(p)])
+                safe_run(["xdg-open", str(p)])
         except Exception as ex:
             messagebox.showerror(self.i18n.t("error"), f"Could not open directory: {ex}")
 
@@ -1067,9 +1088,9 @@ class ErAudioApp(ctk.CTk):
         if sys.platform == "win32":
             os.startfile(p)
         elif sys.platform == "darwin":
-            subprocess.run(["open", str(p)])
+            safe_run(["open", str(p)])
         else:
-            subprocess.run(["xdg-open", str(p)])
+            safe_run(["xdg-open", str(p)])
 
     def _on_browse_conv_file(self):
         f = filedialog.askopenfilename(filetypes=[("Audio Files", "*.m4a *.mp4 *.aac *.mp3 *.wav *.flac *.ogg *.opus *.aiff"), ("All Files", "*.*")])

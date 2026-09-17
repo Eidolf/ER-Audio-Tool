@@ -264,15 +264,9 @@ class DiagnosticRunner:
                         )
                     )
             else:
-                # Linux / Mock environment
-                test_results.append(
-                    DiagnosticItem(
-                        category="Audio Capture",
-                        name="Audio Loopback Test",
-                        status="PASSED",
-                        details=f"System Loopback ({dm.get_active_backend().get_backend_type().value.upper()}) bereit.",
-                    )
-                )
+                # Linux / Mock environment: perform real capture check
+                capture_item = cls.test_audio_capture(duration_sec=0.2, device=default_dev)
+                test_results.append(capture_item)
         else:
             test_results.append(
                 DiagnosticItem(
@@ -396,3 +390,91 @@ class DiagnosticRunner:
             )
 
         return test_results
+
+    @classmethod
+    def test_audio_capture(
+        cls,
+        duration_sec: float = 0.5,
+        device: Optional[AudioDeviceInfo] = None,
+    ) -> DiagnosticItem:
+        """Executes live audio capture pipeline verification measuring frames, peak amplitude, and RMS."""
+        import time
+        dm = DeviceManager()
+        backend = dm.get_backend_for_source_type("rec_system")
+        if not backend or not backend.is_available():
+            return DiagnosticItem(
+                category="Audio Capture Pipeline",
+                name="Live Capture Verification",
+                status="WARNING",
+                details="Audio backend is not available.",
+                recommendation="Ensure audio service is running.",
+            )
+
+        if not device:
+            devs = dm.enumerate_all_devices("rec_system")
+            if not devs:
+                return DiagnosticItem(
+                    category="Audio Capture Pipeline",
+                    name="Live Capture Verification",
+                    status="FAILED",
+                    details="No capture devices available to test.",
+                    recommendation="Connect audio playback hardware.",
+                )
+            device = next((d for d in devs if d.is_default), devs[0])
+
+        received_chunks = []
+
+        def _on_chunk(data: np.ndarray):
+            received_chunks.append(data.copy())
+
+        sample_rate = getattr(device, "sample_rate", 48000) or 48000
+        channels = getattr(device, "channels", 2) or 2
+
+        try:
+            backend.start_capture(device, sample_rate, channels, _on_chunk)
+            time.sleep(duration_sec)
+            backend.stop_capture()
+        except Exception as ex:
+            return DiagnosticItem(
+                category="Audio Capture Pipeline",
+                name="Live Capture Verification",
+                status="WARNING",
+                details=f"Capture initialization failed: {ex}",
+                recommendation="Check device access permissions.",
+            )
+
+        frame_count = sum(len(c) for c in received_chunks)
+        if frame_count == 0:
+            return DiagnosticItem(
+                category="Audio Capture Pipeline",
+                name="Live Capture Verification",
+                status="WARNING",
+                details="Capture opened, but 0 frames received during test period.",
+                recommendation="Ensure audio output is playing.",
+            )
+
+        concatenated = np.concatenate(received_chunks, axis=0)
+        peak = float(np.max(np.abs(concatenated))) if concatenated.size > 0 else 0.0
+        rms = float(np.sqrt(np.mean(concatenated**2))) if concatenated.size > 0 else 0.0
+        peak_db = 20.0 * np.log10(max(peak, 1e-7))
+
+        is_silence = peak < 1e-4
+        if is_silence:
+            status = "PASSED"
+            details = (
+                f"Pipeline active: {len(received_chunks)} blocks ({frame_count} frames) captured. "
+                f"Digital silence detected (Peak: {peak_db:.1f} dBFS, RMS: {rms:.6f})."
+            )
+        else:
+            status = "PASSED"
+            details = (
+                f"Signal active: {len(received_chunks)} blocks ({frame_count} frames) captured. "
+                f"Peak: {peak_db:.1f} dBFS, RMS: {rms:.4f}."
+            )
+
+        return DiagnosticItem(
+            category="Audio Capture Pipeline",
+            name="Live Capture Verification",
+            status=status,
+            details=details,
+        )

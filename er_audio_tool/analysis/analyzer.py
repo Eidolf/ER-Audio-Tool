@@ -47,9 +47,9 @@ class AudioAnalyzer:
         except Exception:
             # Fallback to FFmpeg for formats not natively supported by libsndfile (e.g. M4A/ALAC/AAC)
             import shutil
-            import subprocess
             import tempfile
             from er_audio_tool.audio.codecs import get_ffmpeg_path
+            from er_audio_tool.utils.subprocess_helper import safe_run
             ffmpeg = get_ffmpeg_path() or shutil.which("ffmpeg")
             if not ffmpeg:
                 raise
@@ -57,7 +57,7 @@ class AudioAnalyzer:
                 tmp_path = Path(tmp.name)
             try:
                 cmd = [ffmpeg, "-y", "-i", str(p), "-vn", "-c:a", "pcm_s16le", str(tmp_path)]
-                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                safe_run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
                 info = sf.info(tmp_path)
                 data, sr = sf.read(tmp_path, always_2d=True, dtype="float32")
                 fmt = p.suffix.lstrip(".").upper()
