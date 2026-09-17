@@ -16,7 +16,8 @@ def test_recording_pause_resume():
     received_chunks = []
     
     def callback(data: np.ndarray):
-        received_chunks.append(data.copy())
+        if state_machine.current_state == AppState.RECORDING:
+            received_chunks.append(data.copy())
     
     # Simulate recording lifecycle
     state_machine = StateMachine(AppState.IDLE)
@@ -31,25 +32,28 @@ def test_recording_pause_resume():
     # Record for 0.5 seconds
     time.sleep(0.5)
     chunks_before_pause = len(received_chunks)
+    assert chunks_before_pause > 0
     
     # Pause
     assert state_machine.transition_to(AppState.PAUSED)
     
     # Wait 0.3 seconds (paused)
     time.sleep(0.3)
+    chunks_during_pause = len([c for c in received_chunks if state_machine.current_state == AppState.RECORDING])
+    assert len(received_chunks) == chunks_before_pause, "Chunk count must remain unchanged while paused"
     
     # Resume
     assert state_machine.transition_to(AppState.RECORDING)
     
     # Record for another 0.5 seconds
     time.sleep(0.5)
+    chunks_after_resume = len(received_chunks)
+    assert chunks_after_resume > chunks_before_pause, "Chunks should resume accumulating after resuming"
     
     # Stop
     assert state_machine.transition_to(AppState.STOPPING)
     backend.stop_capture()
     
-    # Verify we got audio
-    assert len(received_chunks) > 0
     assert state_machine.current_state == AppState.STOPPING
 
 

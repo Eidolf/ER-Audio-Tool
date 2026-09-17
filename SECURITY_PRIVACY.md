@@ -64,7 +64,7 @@ Desktop and extension authenticate using cryptographic tokens.
 - User can regenerate tokens at any time
 
 **Token security:**
-- Stored locally in browser extension storage (encrypted by browser)
+- Stored locally in browser extension storage (`chrome.storage.local`); local to the browser profile, not encrypted at rest by the application
 - Transmitted only to 127.0.0.1 (localhost)
 - Never transmitted over internet
 - Never logged or written to disk by desktop app
@@ -323,15 +323,14 @@ Extension does NOT:
 
 **Personal data processing:**
 
-er-audio-tool does NOT process personal data as defined by GDPR because:
-- No data is collected from users
-- No data is transmitted to controllers or processors
-- All processing happens locally on user's device
-- No user identification or profiling
+er-audio-tool is designed around a local-first privacy model:
+- No telemetry or usage analytics are collected from users
+- No user data is transmitted to external remote servers or third-party cloud processors
+- All processing and storage occur strictly on the user's device
 
-**User rights:**
+**User rights & legal scope:**
 
-Since no data is collected, GDPR rights (access, rectification, erasure, etc.) are not applicable. Users have complete control over all local data.
+Because no remote collection or central transmission occurs, er-audio-tool maintains no central databases or remote user profiles. Local recording files and configurations remain fully under the user's control. Specific legal evaluations regarding applicable lawful basis, local retention rules, or organizational data protection obligations must be determined based on the user's jurisdiction and use case.
 
 ### CCPA Compliance (California)
 
@@ -349,20 +348,20 @@ er-audio-tool does NOT "sell" personal information because:
 er-audio-tool uses open-source libraries. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for complete list.
 
 **Security considerations:**
-- Dependencies regularly updated for security patches
-- No known vulnerabilities in current versions
-- User should keep application updated
+- Dependencies should be regularly updated for security patches
+- Third-party packages must be maintained through standard virtual environment dependency updates
+- Users and distributors should monitor dependency security advisories
 
 ### FFmpeg (Optional Download)
 
-**Source:** https://github.com/BtbN/FFmpeg-Builds
+**Sources:**
+- Windows/Linux: Third-party automated builds by BtbN (https://github.com/BtbN/FFmpeg-Builds)
+- macOS: Third-party community builds by evermeet.cx (https://evermeet.cx/ffmpeg/)
 
 **Security considerations:**
-- Downloaded via HTTPS
-- Downloaded from trusted source (official FFmpeg builds)
-- ⚠️ Checksum verification not yet implemented (planned)
-
-**Recommendation:** Verify checksums manually if concerned (checksums available at download source).
+- Downloaded via HTTPS from third-party distribution providers
+- `CodecManager.download_codecs()` supports SHA-256 checksum verification before archive extraction and execution
+- Users may alternatively provide a verified system FFmpeg binary in their system PATH.
 
 ---
 

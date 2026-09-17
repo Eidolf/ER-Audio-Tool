@@ -50,7 +50,7 @@ def test_multitrack_midi_export():
             num_tracks = struct.unpack(">H", header[10:12])[0]
 
             assert fmt == 1, f"Expected SMF Format 1, got {fmt}"
-            assert num_tracks >= 3, f"Expected at least 3 tracks (tempo + 2 channels), got {num_tracks}"
+            assert num_tracks == 4, f"Expected exactly 4 tracks (tempo + 3 channels), got {num_tracks}"
 
         print(f"✓ Multi-track MIDI exported successfully")
         print(f"  Format: {fmt} (SMF Format 1)")

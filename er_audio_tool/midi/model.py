@@ -199,8 +199,16 @@ class MidiExporter:
                 events.append((start_tick, 0x90 | (ch & 0x0F), n.pitch, n.velocity))
                 events.append((end_tick, 0x80 | (ch & 0x0F), n.pitch, 0))
 
-            # Sort events by time
-            events.sort(key=lambda e: (e[0], (e[1] & 0xF0) == 0x80))
+            # Sort events by time, prioritizing note-off over note-on at the same tick
+            def channel_event_priority(e):
+                st = e[1] & 0xF0
+                if st == 0xC0:
+                    return 0
+                if st == 0x80:
+                    return 1
+                return 2
+
+            events.sort(key=lambda e: (e[0], channel_event_priority(e)))
 
             last_tick = 0
             for e in events:

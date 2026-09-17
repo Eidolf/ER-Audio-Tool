@@ -59,21 +59,22 @@ class LinuxPipeWireBackend(AudioCaptureBackend):
         if not pw_rec:
             raise RuntimeError("pw-record binary is not installed in the system PATH.")
 
-        # Dynamically find the default sink monitor name for true loopback capture.
-        # pw-record with --target set to a monitor sink captures system output audio.
         monitor_target = self._find_default_sink_monitor()
+        if not monitor_target:
+            self._running = False
+            raise RuntimeError(
+                "Could not find default audio output monitor sink on PipeWire/PulseAudio. "
+                "Ensure an audio output device is active and not muted."
+            )
 
         cmd = [
             pw_rec,
             "--format", "f32",
             "--rate", str(sample_rate),
             "--channels", str(channels),
+            "--target", monitor_target,
+            "-",  # stdout
         ]
-        if monitor_target:
-            cmd.extend(["--target", monitor_target])
-        # If no monitor found, omit --target and let PipeWire pick its default
-        # capture node (may still be a mic – but avoids the wrong --target 0).
-        cmd.append("-")  # stdout
 
         self._proc = subprocess.Popen(
             cmd,

@@ -502,12 +502,12 @@ See [BROWSER_EXTENSION_SETUP.md](BROWSER_EXTENSION_SETUP.md) for detailed browse
    - Record in multiple shorter sessions
    - Combine files later if needed
 
-**Expected performance:**
+**Expected recording resource usage (stereo 48kHz, 32-bit float internal buffer):**
 
-- 1 hour stereo 48kHz: ~10 MB RAM, ~600 MB WAV file
-- 2 hours stereo 48kHz: ~20 MB RAM, ~1.2 GB WAV file
+- 1 hour stereo 48kHz: ~1.38 GB buffered audio in RAM; ~550-660 MB output WAV (16-bit PCM) or ~1.38 GB (32-bit float)
+- 2 hours stereo 48kHz: ~2.76 GB buffered audio in RAM; ~1.1-1.3 GB output WAV (16-bit PCM) or ~2.76 GB (32-bit float)
 
-If crashes occur with shorter recordings, report as bug.
+When memory is constrained, prefer shorter recording sessions or configure segmented recording.
 
 ---
 
@@ -698,15 +698,14 @@ If your issue isn't covered here:
 
 **Future:** Under consideration for future release.
 
-### Full MIDI Arrangement
+### Full MIDI Arrangement & Multi-Track Export
 
-**Status:** Partial implementation (not true multitrack)
+**Status:** Implemented (SMF Format 1 Multi-Track)
 
-**Current:** Single MIDI track output with all notes
-
-**Expected:** Multiple synchronized tracks with separate instruments
-
-**Future:** Planned enhancement.
+**Behavior:**
+- Multi-channel notes auto-export as Standard MIDI File (SMF) Format 1 with one dedicated track per channel (Tempo Track 0 + individual channel tracks).
+- Single-channel notes auto-export as SMF Format 0 for broad player compatibility, or can be forced to Format 1 via `multitrack=True`.
+- Stem separation pipeline integrates directly with multi-track arrangement (Drums on Channel 9, Bass on Channel 2, Melody on Channel 0, Accompaniment on Channel 1).
 
 ---
 

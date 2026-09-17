@@ -57,11 +57,13 @@ er-audio-tool incorporates open-source libraries and components under various pe
 ## External Binaries (Optional Runtime Downloads)
 
 ### 10. FFmpeg
-- **License**: LGPL 2.1+ or GPL 2+ (depending on build configuration)
+- **License**: LGPL 2.1+ or GPL 2+ (depending on selected prebuilt build configuration)
 - **URL**: https://ffmpeg.org
-- **Download Source**: https://github.com/BtbN/FFmpeg-Builds
+- **Download Sources**:
+  - Windows & Linux: https://github.com/BtbN/FFmpeg-Builds (GPL v2/v3 builds)
+  - macOS: https://evermeet.cx/ffmpeg/
 - **Usage**: Audio codec conversion, M4A (AAC/ALAC) support, native WASAPI loopback
-- **Note**: GPL builds used - source code availability required for distribution
+- **Note**: When GPL builds are downloaded or distributed, GPL source-availability obligations apply for those respective binaries. System FFmpeg installations remain governed by their distribution's packaging terms.
 
 ## Development Dependencies
 
@@ -96,14 +98,14 @@ er-audio-tool is licensed under the MIT License. All core dependencies are compa
 
 **Important Notes:**
 
-1. **Mutagen (GPL)**: The optional Mutagen library is licensed under GPL v2. Users who distribute er-audio-tool binaries with Mutagen must comply with GPL requirements.
+1. **Mutagen (GPL)**: The optional Mutagen library is licensed under GPL v2. Users who distribute er-audio-tool binaries bundling Mutagen must comply with GPL requirements, including source availability of the combined work.
 
-2. **FFmpeg (GPL/LGPL)**: er-audio-tool downloads FFmpeg GPL builds for codec support. Distributors must:
-   - Provide access to FFmpeg source code
-   - Comply with GPL licensing terms
-   - Alternatively, use LGPL-only FFmpeg builds (limited codecs)
+2. **FFmpeg (GPL/LGPL)**: The automatic download service references prebuilt binary archives:
+   - Windows/Linux: BtbN GPL builds (GPL v2/v3). Distribution of these builds requires complying with GPL source availability obligations.
+   - macOS: evermeet.cx builds.
+   - Alternatively, distributors may configure or link LGPL-only FFmpeg builds.
 
-3. **libsndfile (LGPL)**: Dynamically linked, no special requirements for binary distribution.
+3. **libsndfile (LGPL v2.1+)**: Packaged artifacts bundling native `libsndfile` shared libraries must comply with LGPL requirements (permitting dynamic relinking, retaining copyright notices, and providing license text and library source or source offer where applicable). Distribution formats that do not bundle native shared libraries are subject only to the terms of their included components.
 
 ## Acknowledgments
 

@@ -58,7 +58,7 @@ er-audio-tool/
 
 **Repository Size:** 451 MB (likely includes venv and caches)  
 **Python Source Files:** 31 modules (er_audio_tool + legacy)  
-**Test Coverage:** 1,068 lines across 7 test files  
+**Test Coverage:** 1,068 lines across 8 test files  
 **Lines of Code (estimated):** ~8,000-10,000 (production code)
 
 ### 1.2 Git Status

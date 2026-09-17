@@ -39,8 +39,4 @@ ALAC-Verifikation kann später durchgeführt werden wenn:
 
 ## Nächste Schritte
 
-Fahre fort mit **Aufgabe #2: Full MIDI Arrangement** - benötigt kein FFmpeg.
-
----
-
-**Entscheidung erforderlich:** Soll ich mit Aufgabe #2 (MIDI Multi-Track) fortfahren?
+Fahre fort mit den Verifikationsschritten für Windows Portable Build (Task #5) oder der finalen Release-Vorbereitung (Release v0.4.0).

@@ -5,16 +5,24 @@
 let audioCtx = null;
 let sourceNode = null;
 let scriptNode = null;
+let mediaStream = null;
 let isCapturing = false;
 let desktopToken = "";
 let captureSessionId = null;
+let currentGeneration = 0;
+
+// Sequential bounded upload queue
+let isUploading = false;
+const uploadQueue = [];
+const MAX_QUEUE_SIZE = 10;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "START_OFFSCREEN_CAPTURE") {
-    const { streamId, token, captureSession } = message;
+    const { streamId, token, captureSession, generation } = message;
     desktopToken = token || "";
     captureSessionId = captureSession || null;
-    startCapture(streamId)
+    const reqGen = typeof generation === "number" ? generation : ++currentGeneration;
+    startCapture(streamId, reqGen)
       .then(() => sendResponse({ status: "capturing" }))
       .catch((err) => sendResponse({ status: "error", error: err.message }));
     return true; // async response
@@ -26,10 +34,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-async function startCapture(streamId) {
-  if (isCapturing) {
-    stopCapture();
-  }
+async function startCapture(streamId, gen) {
+  stopCapture();
+  currentGeneration = gen;
 
   // getUserMedia with chromeMediaSource 'tab' to attach to the captured tab stream
   let stream;
@@ -47,17 +54,24 @@ async function startCapture(streamId) {
     throw new Error(`getUserMedia failed for streamId ${streamId}: ${err.message}`);
   }
 
+  if (gen !== currentGeneration) {
+    try {
+      stream.getTracks().forEach((track) => track.stop());
+    } catch (_) {}
+    return;
+  }
+
+  mediaStream = stream;
   audioCtx = new AudioContext({ sampleRate: 48000 });
   sourceNode = audioCtx.createMediaStreamSource(stream);
 
-  // ScriptProcessorNode – deprecated but works in Offscreen documents (has DOM)
-  // Chunk size 4096 frames at 48kHz = ~85ms latency per HTTP POST
+  // ScriptProcessorNode – chunk size 4096 frames at 48kHz = ~85ms latency
   const CHUNK_FRAMES = 4096;
   const CHANNELS = 2;
   scriptNode = audioCtx.createScriptProcessor(CHUNK_FRAMES, CHANNELS, CHANNELS);
 
   scriptNode.onaudioprocess = (event) => {
-    if (!isCapturing) return;
+    if (!isCapturing || gen !== currentGeneration) return;
     const inputBuffer = event.inputBuffer;
     const ch0 = inputBuffer.getChannelData(0);
     const ch1 = inputBuffer.numberOfChannels > 1
@@ -72,30 +86,71 @@ async function startCapture(streamId) {
       interleaved[i * 2 + 1] = ch1[i];
     }
 
-    sendPcmChunk(interleaved, CHANNELS, audioCtx.sampleRate);
+    queuePcmChunk(interleaved, CHANNELS, audioCtx ? audioCtx.sampleRate : 48000);
   };
 
-  // Connect graph: source → scriptProcessor → destination (keeps audio alive)
+  // Connect graph:
+  // 1. sourceNode -> scriptNode for capturing PCM chunks
+  // 2. sourceNode -> audioCtx.destination so captured tab audio remains audible
+  // 3. scriptNode -> audioCtx.destination to keep the ScriptProcessor running
   sourceNode.connect(scriptNode);
+  sourceNode.connect(audioCtx.destination);
   scriptNode.connect(audioCtx.destination);
 
   isCapturing = true;
 }
 
 function stopCapture() {
+  currentGeneration++;
   isCapturing = false;
+
+  uploadQueue.length = 0;
+  isUploading = false;
+
+  if (mediaStream) {
+    try {
+      mediaStream.getTracks().forEach((track) => track.stop());
+    } catch (_) {}
+    mediaStream = null;
+  }
+
   try { if (scriptNode) { scriptNode.disconnect(); scriptNode = null; } } catch (_) {}
   try { if (sourceNode) { sourceNode.disconnect(); sourceNode = null; } } catch (_) {}
   try { if (audioCtx) { audioCtx.close(); audioCtx = null; } } catch (_) {}
 }
 
+function queuePcmChunk(float32Array, channels, sampleRate) {
+  if (uploadQueue.length >= MAX_QUEUE_SIZE) {
+    // Drop oldest to bound memory while preserving recent order
+    uploadQueue.shift();
+  }
+  uploadQueue.push({ float32Array, channels, sampleRate });
+  processUploadQueue();
+}
+
+async function processUploadQueue() {
+  if (isUploading || uploadQueue.length === 0 || !isCapturing) {
+    return;
+  }
+
+  isUploading = true;
+  const chunk = uploadQueue.shift();
+
+  try {
+    await sendPcmChunk(chunk.float32Array, chunk.channels, chunk.sampleRate);
+  } finally {
+    isUploading = false;
+    if (uploadQueue.length > 0 && isCapturing) {
+      processUploadQueue();
+    }
+  }
+}
+
 async function sendPcmChunk(float32Array, channels, sampleRate) {
   try {
-    // Encode Float32Array as base64 for JSON transport
     const uint8 = new Uint8Array(float32Array.buffer, float32Array.byteOffset, float32Array.byteLength);
     let binary = "";
     const len = uint8.byteLength;
-    // Build base64 in 8 KB segments to avoid stack overflow on large chunks
     for (let i = 0; i < len; i += 8192) {
       binary += String.fromCharCode(...uint8.subarray(i, Math.min(i + 8192, len)));
     }
@@ -121,3 +176,4 @@ async function sendPcmChunk(float32Array, channels, sampleRate) {
     // Non-blocking: drop chunk on network error
   }
 }
+

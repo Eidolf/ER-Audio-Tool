@@ -86,7 +86,7 @@
 
 **Voraussetzungen:**
 - Windows 11 VM ohne Dev-Tools
-- Python 3.9 oder 3.10 (NICHT 3.14!)
+- Python 3.9, 3.10 oder 3.11 (unterstützte Versionen, NICHT 3.14!)
 - PyInstaller
 
 **Schritte:**
@@ -149,8 +149,8 @@ a338f20 feat: mark stem separation as experimental/roadmap feature
 
 ### Test-Status:
 ```
-Gesamt: 35 Tests (32 original + 3 neue)
-Bestanden: 35 (100%)
+Gesamt: 36 Tests gesammelt (35 bestanden, 1 übersprungen)
+Bestanden: 35 (97.2% der gesammelten Tests, 100% der ausführbaren Tests)
 Übersprungen: 1 (GUI ohne X-Server)
 Fehlgeschlagen: 0
 ```

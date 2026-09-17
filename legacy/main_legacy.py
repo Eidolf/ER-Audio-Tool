@@ -1280,7 +1280,8 @@ class App(ctk.CTk):
 
 
 if __name__ == "__main__":
-    try:
-        App().mainloop()
-    except KeyboardInterrupt:
-        pass
+    print(
+        "Notice: legacy/main_legacy.py is an archived legacy module and cannot be run directly.\n"
+        "Please run 'python main.py' or 'python -m er_audio_tool.cli' instead."
+    )
+

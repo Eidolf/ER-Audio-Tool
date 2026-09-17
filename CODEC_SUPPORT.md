@@ -129,13 +129,18 @@ These formats require the **Full** FFmpeg codec pack:
 | **AIFF** | `.aiff`, `.aif` | ✅ Yes | ✅ Yes | Apple audio format, uncompressed |
 | **WMA** | `.wma` | ✅ Yes | ❌ No | Windows Media Audio (read-only) |
 | **AC3** | `.ac3` | ✅ Yes | ⚠️ Limited | Dolby Digital (DVDs) |
+| **E-AC3** | `.eac3` | ✅ Yes | ⚠️ Limited | Enhanced AC-3 / Dolby Digital Plus |
+| **TrueHD** | `.thd` | ✅ Yes | ❌ No | Dolby TrueHD (decoding only) |
 | **AMR** | `.amr` | ✅ Yes | ✅ Yes | Narrowband speech codec |
 | **DTS** | `.dts` | ✅ Yes | ❌ No | Digital Theater System (read-only) |
+| **WebM** | `.webm` | ✅ Yes | ✅ Yes | WebM Audio (Opus/Vorbis container) |
+| **Musepack** | `.mpc` | ✅ Yes | ❌ No | Musepack audio (decoding only) |
 
 **Notes:**
 - Full codec pack is larger download (~100-200 MB)
-- Includes legacy and specialized formats
-- Some formats support decoding only (no encoding)
+- Includes legacy, studio, and specialized formats
+- Some formats support decoding/playback only (no encoding)
+- Conversion UI supports standard output formats (MP3, WAV, FLAC, OGG, Opus) while importing all decoded formats
 
 ---
 

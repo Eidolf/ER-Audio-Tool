@@ -633,14 +633,12 @@ Co-Authored-By: [Dein Name] <email>"
 
 ---
 
-## 🟢 AUFGABE #7: Pause/Resume Tests (Optional)
+## 🟢 AUFGABE #7: Pause/Resume Tests (Abgeschlossen ✅)
 
-**Priorität:** Niedrig (kann später)  
-**Aufwand:** 2 Stunden
+**Status:** Implementiert & verifiziert (`tests/test_pause_resume.py` vorhanden und alle Tests bestanden).
 
 ### Implementation
-
-**Erstelle:** `tests/test_pause_resume.py`
+Die Datei `tests/test_pause_resume.py` ist implementiert:
 
 ```python
 """Test recording pause/resume functionality."""
@@ -819,7 +817,7 @@ git checkout main
 git merge comprehensive-audit-fixes
 
 # Tag erstellen
-git tag -a v1.4.0 -m "Release 1.4.0: Documentation, MIDI multi-track, experimental stem marking
+git tag -a v0.4.0 -m "Release 0.4.0: Documentation, MIDI multi-track, experimental stem marking
 
 Major improvements:
 - Complete documentation suite (8 documents)
@@ -833,7 +831,7 @@ Ready for public alpha release."
 
 # Push (wenn ready)
 git push origin main
-git push origin v1.4.0
+git push origin v0.4.0
 ```
 
 ---

@@ -293,26 +293,27 @@ def test_alac_to_wav_conversion():
 ---
 
 #### Aufgabe #4: Legacy-Code entfernen
-**Dateien:** `main.py`, `settings.py`, `about.py`  
+**Dateien:** `settings.py`, `about.py` (und monolithisches Altsystem)  
 **Aufwand:** 15 Minuten
 
 **Schritte:**
 ```bash
-# 1. Sicherstellen, dass Legacy-Code nicht verwendet wird
-grep -r "import main" er_audio_tool/
-grep -r "from main import" er_audio_tool/
+# 1. Sicherstellen, dass Legacy-Dialoge nicht mehr importiert werden
+grep -r "from settings import" er_audio_tool/
+grep -r "from about import" er_audio_tool/
 # Sollte nichts finden
 
-# 2. Dateien löschen
-git rm main.py settings.py about.py
+# 2. Veraltete Dialogdateien entfernen bzw. nach legacy/ verschieben
+# Hinweis: Das Root-main.py bleibt als schlanker CLI-Launcher erhalten!
+git rm settings.py about.py
 
 # 3. Commit
-git commit -m "refactor: remove legacy monolithic code
+git commit -m "refactor: remove legacy monolithic dialogs and archive old GUI
 
 Removed unused legacy files:
-- main.py (46 KB)
 - settings.py (12 KB)  
 - about.py (6 KB)
+(main.py remains as modern thin entrypoint delegating to er_audio_tool.cli)
 
 Modern modular implementation in er_audio_tool/ is now the sole codebase.
 
@@ -440,8 +441,9 @@ def test_recording_pause_resume():
 ### Schritt 1: Legacy-Code entfernen ✅ SOFORT
 ```bash
 cd /home/dev/github/ER-Audio-Tool
-git rm main.py settings.py about.py
-git commit -m "refactor: remove legacy monolithic code"
+# Altes main.py wurde nach legacy/ archiviert und durch schlanken Launcher ersetzt.
+git rm settings.py about.py 2>/dev/null || true
+git commit -m "refactor: remove legacy monolithic dialogs"
 ```
 
 ### Schritt 2: Stem-Separation Feature-Markierung

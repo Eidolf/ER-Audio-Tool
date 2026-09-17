@@ -52,6 +52,7 @@ async function performHeartbeat() {
 let isRecording = false;
 let activeTabInfo = null;
 let captureSessionId = null; // remains null – desktop server generates the real ID
+let currentCaptureGen = 0;
 
 // ── Desktop Server Communication ───────────────────────────────────────────────
 async function sendToDesktopServer(endpoint, payload, token) {
@@ -97,7 +98,7 @@ async function closeOffscreenDocument() {
 }
 
 // ── Tab Audio Capture ──────────────────────────────────────────────────────────
-async function startTabAudioCapture(tabInfo, token) {
+async function startTabAudioCapture(tabInfo, token, expectedGen) {
   if (!chrome.tabCapture || typeof chrome.tabCapture.getMediaStreamId !== "function") {
     console.warn("chrome.tabCapture.getMediaStreamId not available");
     return;
@@ -122,10 +123,18 @@ async function startTabAudioCapture(tabInfo, token) {
     return;
   }
 
+  if (expectedGen !== currentCaptureGen || !isRecording) {
+    return;
+  }
+
   try {
     await ensureOffscreenDocument();
   } catch (err) {
     console.warn("Could not create offscreen document:", err.message);
+    return;
+  }
+
+  if (expectedGen !== currentCaptureGen || !isRecording) {
     return;
   }
 
@@ -136,6 +145,7 @@ async function startTabAudioCapture(tabInfo, token) {
       streamId: streamId,
       token: token,
       captureSession: captureSessionId, // null – desktop server validates its own sessions
+      generation: expectedGen,
     });
   } catch (err) {
     console.warn("Offscreen message failed:", err.message);
@@ -143,6 +153,7 @@ async function startTabAudioCapture(tabInfo, token) {
 }
 
 async function stopTabAudioCapture() {
+  currentCaptureGen++;
   // Tell offscreen to stop
   try {
     await chrome.runtime.sendMessage({ action: "STOP_OFFSCREEN_CAPTURE" });
@@ -160,20 +171,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "START_CAPTURE") {
     isRecording = true;
     activeTabInfo = message.tabInfo || null;
+    const captureGen = ++currentCaptureGen;
     try {
       chrome.action.setBadgeText({ text: "REC" });
       chrome.action.setBadgeBackgroundColor({ color: "#e53935" });
     } catch (_) {}
 
     chrome.storage.local.get(["sessionToken"], async (stored) => {
+      if (captureGen !== currentCaptureGen || !isRecording) return;
       const token = stored.sessionToken;
 
       // Notify desktop server which tab was selected
       await sendToDesktopServer("/api/tab_selected", { tabInfo: activeTabInfo }, token);
+      if (captureGen !== currentCaptureGen || !isRecording) return;
 
       // Start audio capture through Offscreen Document
       if (activeTabInfo) {
-        await startTabAudioCapture(activeTabInfo, token);
+        await startTabAudioCapture(activeTabInfo, token, captureGen);
       }
     });
 

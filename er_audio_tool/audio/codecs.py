@@ -6,6 +6,7 @@ and session exit cleanup handling.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sys
@@ -135,8 +136,9 @@ class CodecManager:
         scope: str = "essential",
         progress_callback: Optional[Callable[[float, str], None]] = None,
         cancel_event: Optional[threading.Event] = None,
+        expected_sha256: Optional[str] = None,
     ) -> bool:
-        """Downloads and extracts FFmpeg into temp_codecs directory."""
+        """Downloads and extracts FFmpeg into temp_codecs directory with optional checksum verification."""
         plat = "win32" if sys.platform == "win32" else ("darwin" if sys.platform == "darwin" else "linux")
         urls = FFMPEG_RELEASE_URLS.get(plat, FFMPEG_RELEASE_URLS["linux"])
         download_url = urls.get(scope, urls.get("essential"))
@@ -158,6 +160,7 @@ class CodecManager:
                 download_url,
                 headers={"User-Agent": "Mozilla/5.0 (er-audio-tool/1.0 codec-installer)"},
             )
+            hasher = hashlib.sha256() if expected_sha256 else None
             with urllib.request.urlopen(req, timeout=30) as resp, open(archive_path, "wb") as out_file:
                 total_size = int(resp.headers.get("content-length", 0))
                 downloaded = 0
@@ -174,12 +177,22 @@ class CodecManager:
                     if not chunk:
                         break
                     out_file.write(chunk)
+                    if hasher:
+                        hasher.update(chunk)
                     downloaded += len(chunk)
                     if total_size > 0 and progress_callback:
                         pct = 0.05 + 0.75 * (downloaded / total_size)
                         mb = downloaded / (1024 * 1024)
                         total_mb = total_size / (1024 * 1024)
                         progress_callback(pct, f"Downloading: {mb:.1f} MB / {total_mb:.1f} MB ({int(pct*100)}%)")
+
+            if expected_sha256 and hasher:
+                actual_hash = hasher.hexdigest().lower()
+                if actual_hash != expected_sha256.lower().strip():
+                    archive_path.unlink(missing_ok=True)
+                    if progress_callback:
+                        progress_callback(0.0, f"Checksum mismatch: expected {expected_sha256}, got {actual_hash}")
+                    return False
 
             if progress_callback:
                 progress_callback(0.85, "Extracting binaries...")
